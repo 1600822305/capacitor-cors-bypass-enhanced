@@ -1,0 +1,29 @@
+{
+  "name": "capacitor-cors-proxy-server",
+  "version": "1.0.0",
+  "description": "CORS proxy server for web development",
+  "main": "web-proxy-server.js",
+  "scripts": {
+    "start": "node web-proxy-server.js",
+    "dev": "nodemon web-proxy-server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "http-proxy-middleware": "^2.0.6",
+    "cors": "^2.8.5",
+    "eventsource": "^2.0.2",
+    "node-fetch": "^2.6.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": [
+    "cors",
+    "proxy",
+    "mcp",
+    "sse",
+    "capacitor"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}

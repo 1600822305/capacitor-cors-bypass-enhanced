@@ -1,0 +1,105 @@
+{
+  "name": "capacitor-cors-bypass-enhanced",
+  "version": "1.0.5",
+  "description": "Enhanced Capacitor plugin for CORS bypass with HTTP/2, HTTP/3, gRPC, GraphQL, file operations, and advanced networking features",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "unpkg": "dist/plugin.js",
+  "files": [
+    "src/",
+    "android/src/main/",
+    "android/build.gradle",
+    "dist/",
+    "ios/Plugin/",
+    "CapacitorCorsBypassEnhanced.podspec"
+  ],
+  "author": "AetherLink Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/1600822305/capacitor-cors-bypass-enhanced.git"
+  },
+  "bugs": {
+    "url": "https://github.com/1600822305/capacitor-cors-bypass-enhanced/issues"
+  },
+  "homepage": "https://github.com/1600822305/capacitor-cors-bypass-enhanced#readme",
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "cors",
+    "http",
+    "http2",
+    "http3",
+    "quic",
+    "grpc",
+    "graphql",
+    "sse",
+    "server-sent-events",
+    "websocket",
+    "mcp",
+    "model-context-protocol",
+    "file-upload",
+    "file-download",
+    "network",
+    "proxy",
+    "cache",
+    "batch-requests",
+    "connection-pool",
+    "data-parsing",
+    "mobile",
+    "android",
+    "ios",
+    "web"
+  ],
+  "scripts": {
+    "verify": "npm run verify:ios && npm run verify:android && npm run verify:web",
+    "verify:ios": "cd ios && pod install && xcodebuild -workspace Plugin.xcworkspace -scheme Plugin -destination generic/platform=iOS",
+    "verify:android": "cd android && ./gradlew clean build test && cd ..",
+    "verify:web": "npm run build",
+    "lint": "npm run eslint && npm run prettier -- --check && npm run swiftlint -- lint",
+    "fmt": "npm run eslint -- --fix && npm run prettier -- --write && npm run swiftlint -- --fix --format",
+    "eslint": "eslint . --ext ts",
+    "prettier": "prettier \"**/*.{css,html,ts,js,java}\"",
+    "swiftlint": "node-swiftlint",
+    "build": "npm run clean && tsc && rollup -c rollup.config.js",
+    "clean": "rimraf ./dist",
+    "watch": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.2.0",
+    "@capacitor/core": "^7.2.0",
+    "@capacitor/ios": "^7.2.0",
+    "@ionic/eslint-config": "^0.3.0",
+    "@ionic/prettier-config": "^1.0.1",
+    "@ionic/swiftlint-config": "^1.1.2",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "eslint": "^7.11.0",
+    "prettier": "~2.3.0",
+    "prettier-plugin-java": "~1.0.2",
+    "rimraf": "^3.0.2",
+    "rollup": "^2.32.0",
+    "swiftlint": "^1.0.1",
+    "typescript": "~4.9.0"
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^7.2.0"
+  },
+  "prettier": "@ionic/prettier-config",
+  "swiftlint": "@ionic/swiftlint-config",
+  "eslintConfig": {
+    "extends": "@ionic/eslint-config/recommended"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1"
+  }
+}

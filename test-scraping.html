@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网页抓取测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-item {
+            margin: 15px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #fafafa;
+        }
+        button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056CC;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .loading {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        .url-input {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🕷️ 网页抓取测试</h1>
+        <p>测试 capacitor-cors-bypass-enhanced 插件的网页抓取功能</p>
+
+        <!-- 预设测试 -->
+        <div class="test-item">
+            <h3>📋 预设测试</h3>
+            <button onclick="testHttpBin()">测试 HTTPBin</button>
+            <button onclick="testBaidu()">测试 百度搜索</button>
+            <button onclick="testBing()">测试 Bing搜索</button>
+            <button onclick="testGoogle()">测试 Google</button>
+            <div id="preset-result" class="result" style="display: none;"></div>
+        </div>
+
+        <!-- 自定义测试 -->
+        <div class="test-item">
+            <h3>🔧 自定义测试</h3>
+            <input type="text" id="custom-url" class="url-input" 
+                   placeholder="输入要抓取的URL，例如: https://example.com"
+                   value="https://www.baidu.com">
+            <br>
+            <button onclick="testCustomUrl()">开始抓取</button>
+            <button onclick="clearResults()">清除结果</button>
+            <div id="custom-result" class="result" style="display: none;"></div>
+        </div>
+
+        <!-- 批量测试 -->
+        <div class="test-item">
+            <h3>🚀 批量测试</h3>
+            <button onclick="runBatchTest()">运行所有测试</button>
+            <div id="batch-result" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { CorsBypass } from 'capacitor-cors-bypass-enhanced';
+        
+        // 将插件暴露到全局
+        window.CorsBypass = CorsBypass;
+        
+        // 通用测试函数
+        window.testWebScraping = async function(url, resultElementId, testName = '') {
+            const resultElement = document.getElementById(resultElementId);
+            resultElement.style.display = 'block';
+            resultElement.className = 'result loading';
+            resultElement.textContent = `🔄 正在抓取 ${testName || url}...`;
+            
+            const startTime = Date.now();
+            
+            try {
+                const response = await CorsBypass.request({
+                    url: url,
+                    method: 'GET',
+                    responseType: 'text',
+                    timeout: 30000,
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1'
+                    }
+                });
+                
+                const duration = Date.now() - startTime;
+                const contentLength = response.data ? response.data.length : 0;
+                const preview = response.data ? response.data.substring(0, 500) : '';
+                
+                resultElement.className = 'result success';
+                resultElement.textContent = `✅ 抓取成功！
+🕐 耗时: ${duration}ms
+📊 状态: ${response.status} ${response.statusText}
+🔗 URL: ${response.url}
+📄 内容长度: ${contentLength} 字符
+📋 响应头: ${Object.keys(response.headers || {}).length} 个
+
+📝 内容预览:
+${preview}${contentLength > 500 ? '...' : ''}`;
+                
+                return { success: true, duration, status: response.status, contentLength };
+                
+            } catch (error) {
+                const duration = Date.now() - startTime;
+                
+                resultElement.className = 'result error';
+                resultElement.textContent = `❌ 抓取失败！
+🕐 耗时: ${duration}ms
+🚨 错误: ${error.message}
+📋 详情: ${JSON.stringify(error, null, 2)}`;
+                
+                return { success: false, duration, error: error.message };
+            }
+        };
+        
+        // 预设测试函数
+        window.testHttpBin = () => testWebScraping('https://httpbin.org/get', 'preset-result', 'HTTPBin API');
+        window.testBaidu = () => testWebScraping('https://www.baidu.com/s?wd=test', 'preset-result', '百度搜索');
+        window.testBing = () => testWebScraping('https://www.bing.com/search?q=test', 'preset-result', 'Bing搜索');
+        window.testGoogle = () => testWebScraping('https://www.google.com/search?q=test', 'preset-result', 'Google搜索');
+        
+        // 自定义URL测试
+        window.testCustomUrl = () => {
+            const url = document.getElementById('custom-url').value.trim();
+            if (!url) {
+                alert('请输入URL');
+                return;
+            }
+            testWebScraping(url, 'custom-result', '自定义URL');
+        };
+        
+        // 清除结果
+        window.clearResults = () => {
+            document.getElementById('custom-result').style.display = 'none';
+            document.getElementById('preset-result').style.display = 'none';
+            document.getElementById('batch-result').style.display = 'none';
+        };
+        
+        // 批量测试
+        window.runBatchTest = async () => {
+            const resultElement = document.getElementById('batch-result');
+            resultElement.style.display = 'block';
+            resultElement.className = 'result loading';
+            resultElement.textContent = '🚀 开始批量测试...';
+            
+            const tests = [
+                { name: 'HTTPBin', url: 'https://httpbin.org/get' },
+                { name: '百度首页', url: 'https://www.baidu.com' },
+                { name: 'Bing搜索', url: 'https://www.bing.com/search?q=test' },
+                { name: '简单HTTP', url: 'http://httpbin.org/get' }
+            ];
+            
+            const results = [];
+            
+            for (const test of tests) {
+                resultElement.textContent += `\n🧪 测试 ${test.name}...`;
+                const result = await testWebScraping(test.url, 'batch-result', test.name);
+                results.push({ ...test, ...result });
+                await new Promise(resolve => setTimeout(resolve, 1000)); // 间隔1秒
+            }
+            
+            // 显示总结
+            const successCount = results.filter(r => r.success).length;
+            const summary = `
+📊 批量测试完成！
+✅ 成功: ${successCount}/${results.length}
+📈 成功率: ${(successCount/results.length*100).toFixed(1)}%
+
+详细结果:
+${results.map(r => `${r.success ? '✅' : '❌'} ${r.name}: ${r.duration}ms ${r.success ? `(${r.status}, ${r.contentLength}字符)` : `(${r.error})`}`).join('\n')}`;
+            
+            resultElement.className = successCount === results.length ? 'result success' : 'result error';
+            resultElement.textContent = summary;
+        };
+        
+        console.log('🛠️ 网页抓取测试工具已加载！');
+        console.log('插件版本:', CorsBypass);
+    </script>
+</body>
+</html>
