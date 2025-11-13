@@ -8,7 +8,9 @@ import Capacitor
 @objc(CorsBypassPlugin)
 public class CorsBypassPlugin: CAPPlugin {
     private var sseConnections: [String: SSEConnection] = [:]
+    private var streamTasks: [String: URLSessionDataTask] = [:]
     private var connectionCounter = 0
+    private var streamCounter = 0
     
     @objc func request(_ call: CAPPluginCall) {
         guard let url = call.getString("url") else {
@@ -247,6 +249,106 @@ public class CorsBypassPlugin: CAPPlugin {
         call.resolve()
     }
     
+    @objc func streamRequest(_ call: CAPPluginCall) {
+        guard let url = call.getString("url") else {
+            call.reject("URL is required")
+            return
+        }
+        
+        streamCounter += 1
+        let streamId = "stream_\(streamCounter)"
+        
+        let method = call.getString("method") ?? "POST"
+        let headers = call.getObject("headers") as? [String: String] ?? [:]
+        let data = call.getValue("data")
+        let params = call.getObject("params") as? [String: String]
+        let timeout = call.getDouble("timeout") ?? 60.0
+        
+        var urlString = url
+        
+        // Add URL parameters
+        if let params = params, !params.isEmpty {
+            var urlComponents = URLComponents(string: url)
+            var queryItems = urlComponents?.queryItems ?? []
+            
+            for (key, value) in params {
+                queryItems.append(URLQueryItem(name: key, value: value))
+            }
+            
+            urlComponents?.queryItems = queryItems
+            urlString = urlComponents?.url?.absoluteString ?? url
+        }
+        
+        guard let requestUrl = URL(string: urlString) else {
+            call.reject("Invalid URL")
+            return
+        }
+        
+        var request = URLRequest(url: requestUrl)
+        request.httpMethod = method
+        request.timeoutInterval = timeout
+        
+        // Set headers
+        request.setValue("text/event-stream, application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        
+        // Set body for non-GET requests
+        if method != "GET", let data = data {
+            do {
+                if let jsonData = data as? [String: Any] {
+                    request.httpBody = try JSONSerialization.data(withJSONObject: jsonData)
+                    if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    }
+                } else if let stringData = data as? String {
+                    request.httpBody = stringData.data(using: .utf8)
+                }
+            } catch {
+                call.reject("Failed to serialize request body: \(error.localizedDescription)")
+                return
+            }
+        }
+        
+        // Configure session for streaming
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = timeout
+        config.timeoutIntervalForResource = 0  // No timeout for streaming
+        
+        let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        
+        let task = session.dataTask(with: request)
+        streamTasks[streamId] = task
+        
+        // Store stream context
+        let context = StreamContext(streamId: streamId, plugin: self)
+        objc_setAssociatedObject(task, &AssociatedKeys.streamContext, context, .OBJC_ASSOCIATION_RETAIN)
+        
+        task.resume()
+        
+        call.resolve(["streamId": streamId])
+    }
+    
+    @objc func cancelStream(_ call: CAPPluginCall) {
+        guard let streamId = call.getString("streamId") else {
+            call.reject("Stream ID is required")
+            return
+        }
+        
+        if let task = streamTasks[streamId] {
+            task.cancel()
+            streamTasks.removeValue(forKey: streamId)
+            
+            notifyListeners("streamStatus", data: [
+                "streamId": streamId,
+                "status": "cancelled"
+            ])
+        }
+        
+        call.resolve()
+    }
+    
     // SSE event handlers
     func notifySSEOpen(connectionId: String) {
         notifyListeners("sseOpen", data: [
@@ -284,5 +386,128 @@ public class CorsBypassPlugin: CAPPlugin {
             "connectionId": connectionId,
             "status": "disconnected"
         ])
+    }
+}
+
+// MARK: - Stream Support
+
+private struct AssociatedKeys {
+    static var streamContext = "streamContext"
+}
+
+private class StreamContext {
+    let streamId: String
+    weak var plugin: CorsBypassPlugin?
+    var receivedData = Data()
+    
+    init(streamId: String, plugin: CorsBypassPlugin) {
+        self.streamId = streamId
+        self.plugin = plugin
+    }
+}
+
+extension CorsBypassPlugin: URLSessionDataDelegate {
+    public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        
+        guard let context = objc_getAssociatedObject(dataTask, &AssociatedKeys.streamContext) as? StreamContext else {
+            completionHandler(.cancel)
+            return
+        }
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            context.plugin?.notifyListeners("streamStatus", data: [
+                "streamId": context.streamId,
+                "status": "error",
+                "error": "Invalid response"
+            ])
+            completionHandler(.cancel)
+            return
+        }
+        
+        // Convert headers to dictionary
+        var responseHeaders: [String: String] = [:]
+        for (key, value) in httpResponse.allHeaderFields {
+            if let keyString = key as? String, let valueString = value as? String {
+                responseHeaders[keyString] = valueString
+            }
+        }
+        
+        // Notify stream started
+        context.plugin?.notifyListeners("streamStatus", data: [
+            "streamId": context.streamId,
+            "status": "started",
+            "statusCode": httpResponse.statusCode,
+            "headers": responseHeaders
+        ])
+        
+        if httpResponse.statusCode == 200 {
+            completionHandler(.allow)
+        } else {
+            context.plugin?.notifyListeners("streamStatus", data: [
+                "streamId": context.streamId,
+                "status": "error",
+                "error": "HTTP \(httpResponse.statusCode)"
+            ])
+            completionHandler(.cancel)
+        }
+    }
+    
+    public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard let context = objc_getAssociatedObject(dataTask, &AssociatedKeys.streamContext) as? StreamContext else {
+            return
+        }
+        
+        guard let chunk = String(data: data, encoding: .utf8) else {
+            return
+        }
+        
+        // Send chunk to listeners
+        context.plugin?.notifyListeners("streamChunk", data: [
+            "streamId": context.streamId,
+            "data": chunk,
+            "done": false
+        ])
+    }
+    
+    public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let dataTask = task as? URLSessionDataTask,
+              let context = objc_getAssociatedObject(dataTask, &AssociatedKeys.streamContext) as? StreamContext else {
+            return
+        }
+        
+        streamTasks.removeValue(forKey: context.streamId)
+        
+        if let error = error {
+            let nsError = error as NSError
+            if nsError.code == NSURLErrorCancelled {
+                // Already notified in cancelStream
+                return
+            }
+            
+            context.plugin?.notifyListeners("streamChunk", data: [
+                "streamId": context.streamId,
+                "data": "",
+                "done": true,
+                "error": error.localizedDescription
+            ])
+            
+            context.plugin?.notifyListeners("streamStatus", data: [
+                "streamId": context.streamId,
+                "status": "error",
+                "error": error.localizedDescription
+            ])
+        } else {
+            // Stream completed successfully
+            context.plugin?.notifyListeners("streamChunk", data: [
+                "streamId": context.streamId,
+                "data": "",
+                "done": true
+            ])
+            
+            context.plugin?.notifyListeners("streamStatus", data: [
+                "streamId": context.streamId,
+                "status": "completed"
+            ])
+        }
     }
 }

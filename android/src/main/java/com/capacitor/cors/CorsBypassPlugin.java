@@ -7,6 +7,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -19,7 +20,9 @@ import org.json.JSONObject;
 public class CorsBypassPlugin extends Plugin {
     private static final String TAG = "CorsBypassPlugin";
     private final Map<String, SSEConnection> sseConnections = new HashMap<>();
+    private final Map<String, Call> streamRequests = new HashMap<>();
     private int connectionCounter = 0;
+    private int streamCounter = 0;
     private OkHttpClient httpClient;
 
     @Override
@@ -255,6 +258,204 @@ public class CorsBypassPlugin extends Plugin {
         if (connection != null) {
             connection.disconnect();
             sseConnections.remove(connectionId);
+        }
+
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void streamRequest(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null) {
+            call.reject("URL is required");
+            return;
+        }
+
+        streamCounter++;
+        String streamId = "stream_" + streamCounter;
+
+        String method = call.getString("method", "POST");
+        JSObject headers = call.getObject("headers", new JSObject());
+        JSObject params = call.getObject("params", new JSObject());
+        Object data = call.getData().opt("data");
+        double timeout = call.getDouble("timeout", 60.0);
+
+        try {
+            // Build URL with parameters
+            HttpUrl.Builder urlBuilder = HttpUrl.parse(url).newBuilder();
+            Iterator<String> paramKeys = params.keys();
+            while (paramKeys.hasNext()) {
+                String key = paramKeys.next();
+                urlBuilder.addQueryParameter(key, params.getString(key));
+            }
+            HttpUrl requestUrl = urlBuilder.build();
+
+            // Build request
+            Request.Builder requestBuilder = new Request.Builder().url(requestUrl);
+
+            // Add headers
+            requestBuilder.addHeader("Accept", "text/event-stream, application/json, text/plain, */*");
+            Iterator<String> headerKeys = headers.keys();
+            while (headerKeys.hasNext()) {
+                String key = headerKeys.next();
+                requestBuilder.addHeader(key, headers.getString(key));
+            }
+
+            // Add body for non-GET requests
+            RequestBody body = null;
+            if (!method.equals("GET") && data != null) {
+                MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
+                if (data instanceof JSONObject) {
+                    body = RequestBody.create(mediaType, data.toString());
+                } else if (data instanceof String) {
+                    body = RequestBody.create(mediaType, (String) data);
+                }
+                
+                if (!headers.has("Content-Type")) {
+                    requestBuilder.addHeader("Content-Type", "application/json");
+                }
+            }
+
+            requestBuilder.method(method, body);
+            Request request = requestBuilder.build();
+
+            // Configure client with timeout
+            OkHttpClient client = httpClient.newBuilder()
+                .connectTimeout((long) timeout, TimeUnit.SECONDS)
+                .readTimeout(0, TimeUnit.SECONDS)  // No timeout for streaming
+                .writeTimeout((long) timeout, TimeUnit.SECONDS)
+                .build();
+
+            // Execute streaming request
+            Log.d(TAG, "Starting stream request: " + streamId + " to " + requestUrl.toString());
+            
+            Call streamCall = client.newCall(request);
+            streamRequests.put(streamId, streamCall);
+
+            streamCall.enqueue(new Callback() {
+                @Override
+                public void onFailure(Call httpCall, IOException e) {
+                    Log.e(TAG, "Stream request failed: " + e.getMessage(), e);
+                    streamRequests.remove(streamId);
+                    
+                    JSObject errorData = new JSObject();
+                    errorData.put("streamId", streamId);
+                    errorData.put("data", "");
+                    errorData.put("done", true);
+                    errorData.put("error", e.getMessage());
+                    notifyListeners("streamChunk", errorData);
+                    
+                    JSObject statusData = new JSObject();
+                    statusData.put("streamId", streamId);
+                    statusData.put("status", "error");
+                    statusData.put("error", e.getMessage());
+                    notifyListeners("streamStatus", statusData);
+                }
+
+                @Override
+                public void onResponse(Call httpCall, Response response) throws IOException {
+                    try {
+                        // Parse response headers
+                        JSObject responseHeaders = new JSObject();
+                        for (String name : response.headers().names()) {
+                            responseHeaders.put(name, response.header(name));
+                        }
+
+                        // Notify stream started
+                        JSObject statusData = new JSObject();
+                        statusData.put("streamId", streamId);
+                        statusData.put("status", "started");
+                        statusData.put("statusCode", response.code());
+                        statusData.put("headers", responseHeaders);
+                        notifyListeners("streamStatus", statusData);
+
+                        if (!response.isSuccessful()) {
+                            throw new IOException("HTTP " + response.code() + ": " + response.message());
+                        }
+
+                        // Read stream in chunks
+                        if (response.body() != null) {
+                            InputStream inputStream = response.body().byteStream();
+                            byte[] buffer = new byte[8192];
+                            int bytesRead;
+
+                            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                                String chunk = new String(buffer, 0, bytesRead, "UTF-8");
+                                
+                                JSObject chunkData = new JSObject();
+                                chunkData.put("streamId", streamId);
+                                chunkData.put("data", chunk);
+                                chunkData.put("done", false);
+                                notifyListeners("streamChunk", chunkData);
+                            }
+
+                            // Stream completed
+                            JSObject finalChunk = new JSObject();
+                            finalChunk.put("streamId", streamId);
+                            finalChunk.put("data", "");
+                            finalChunk.put("done", true);
+                            notifyListeners("streamChunk", finalChunk);
+
+                            JSObject completedStatus = new JSObject();
+                            completedStatus.put("streamId", streamId);
+                            completedStatus.put("status", "completed");
+                            notifyListeners("streamStatus", completedStatus);
+                        }
+
+                        streamRequests.remove(streamId);
+                        Log.d(TAG, "Stream completed: " + streamId);
+
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error processing stream", e);
+                        streamRequests.remove(streamId);
+                        
+                        JSObject errorData = new JSObject();
+                        errorData.put("streamId", streamId);
+                        errorData.put("data", "");
+                        errorData.put("done", true);
+                        errorData.put("error", e.getMessage());
+                        notifyListeners("streamChunk", errorData);
+                        
+                        JSObject statusData = new JSObject();
+                        statusData.put("streamId", streamId);
+                        statusData.put("status", "error");
+                        statusData.put("error", e.getMessage());
+                        notifyListeners("streamStatus", statusData);
+                    } finally {
+                        if (response.body() != null) {
+                            response.body().close();
+                        }
+                    }
+                }
+            });
+
+            JSObject result = new JSObject();
+            result.put("streamId", streamId);
+            call.resolve(result);
+
+        } catch (Exception e) {
+            streamRequests.remove(streamId);
+            call.reject("Failed to start stream request: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void cancelStream(PluginCall call) {
+        String streamId = call.getString("streamId");
+        if (streamId == null) {
+            call.reject("Stream ID is required");
+            return;
+        }
+
+        Call streamCall = streamRequests.get(streamId);
+        if (streamCall != null) {
+            streamCall.cancel();
+            streamRequests.remove(streamId);
+            
+            JSObject statusData = new JSObject();
+            statusData.put("streamId", streamId);
+            statusData.put("status", "cancelled");
+            notifyListeners("streamStatus", statusData);
         }
 
         call.resolve();
