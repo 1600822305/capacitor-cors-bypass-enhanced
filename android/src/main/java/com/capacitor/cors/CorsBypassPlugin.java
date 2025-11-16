@@ -1,6 +1,7 @@
 package com.capacitor.cors;
 
 import android.util.Log;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -8,8 +9,10 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import okhttp3.*;
@@ -24,27 +27,77 @@ public class CorsBypassPlugin extends Plugin {
     private int connectionCounter = 0;
     private int streamCounter = 0;
     private OkHttpClient httpClient;
+    private PluginInterceptor pluginInterceptor;
+    private CacheManager cacheManager;
+    private CacheInterceptor cacheInterceptor;
 
     @Override
     public void load() {
         super.load();
 
-        // Initialize HTTP client with enhanced configuration
+        // Initialize plugin interceptor
+        pluginInterceptor = new PluginInterceptor(this);
+
+        // Initialize cache manager
+        cacheManager = new CacheManager(
+            getContext(),
+            50 * 1024 * 1024, // 50MB
+            CacheManager.CacheEvictionPolicy.LRU
+        );
+
+        // Initialize cache interceptor
+        cacheInterceptor = new CacheInterceptor(
+            cacheManager,
+            CacheInterceptor.CacheStrategy.NETWORK_FIRST,
+            5 * 60 * 1000, // 5 minutes
+            false // Disabled by default, enable via plugin method
+        );
+
+        // Initialize HTTP client with HTTP/2 support
         httpClient = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)  // 增加读取超时
+            .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
-            // 添加拦截器用于调试
+            
+            // Connection pool for connection reuse
+            .connectionPool(new ConnectionPool(5, 5, TimeUnit.MINUTES))
+            
+            // Protocol configuration - HTTP/2 support
+            .protocols(Arrays.asList(
+                Protocol.HTTP_2,      // HTTP/2
+                Protocol.HTTP_1_1     // HTTP/1.1 fallback
+            ))
+            
+            // Connection specs for TLS configuration
+            .connectionSpecs(Arrays.asList(
+                ConnectionSpec.MODERN_TLS,
+                ConnectionSpec.COMPATIBLE_TLS,
+                ConnectionSpec.CLEARTEXT
+            ))
+            
+            // HTTP/2 ping interval for connection health check
+            .pingInterval(10, TimeUnit.SECONDS)
+            
+            // Add cache interceptor
+            .addInterceptor(cacheInterceptor)
+            
+            // Add plugin interceptor
+            .addInterceptor(pluginInterceptor)
+            
+            // Add logging interceptor for debugging
             .addInterceptor(new okhttp3.logging.HttpLoggingInterceptor(new okhttp3.logging.HttpLoggingInterceptor.Logger() {
                 @Override
                 public void log(String message) {
                     Log.d(TAG, "HTTP: " + message);
                 }
             }).setLevel(okhttp3.logging.HttpLoggingInterceptor.Level.BASIC))
+            
             .build();
+            
+        Log.i(TAG, "HTTP client initialized with HTTP/2 support");
     }
 
     @PluginMethod
@@ -147,7 +200,10 @@ public class CorsBypassPlugin extends Plugin {
 
                 @Override
                 public void onResponse(Call httpCall, Response response) throws IOException {
-                    Log.d(TAG, "Response received: " + response.code() + " " + response.message());
+                    // Get protocol version
+                    String protocolVersion = response.protocol().toString();
+                    Log.d(TAG, "Response received: " + response.code() + " " + response.message() + " (Protocol: " + protocolVersion + ")");
+                    
                     try {
                         // Parse response headers
                         JSObject responseHeaders = new JSObject();
@@ -195,8 +251,9 @@ public class CorsBypassPlugin extends Plugin {
                         result.put("statusText", response.message());
                         result.put("headers", responseHeaders);
                         result.put("url", response.request().url().toString());
+                        result.put("protocolVersion", protocolVersion);
 
-                        Log.d(TAG, "Request completed successfully");
+                        Log.d(TAG, "Request completed successfully with " + protocolVersion);
                         call.resolve(result);
                     } catch (Exception e) {
                         Log.e(TAG, "Failed to parse response", e);
@@ -261,6 +318,134 @@ public class CorsBypassPlugin extends Plugin {
         }
 
         call.resolve();
+    }
+
+    // ==================== Cache Management Methods ====================
+
+    @PluginMethod
+    public void enableCache(PluginCall call) {
+        String strategy = call.getString("strategy", "NETWORK_FIRST");
+        long maxAge = call.getLong("maxAge", 5 * 60 * 1000L);
+        
+        CacheInterceptor.CacheStrategy cacheStrategy;
+        try {
+            cacheStrategy = CacheInterceptor.CacheStrategy.valueOf(strategy);
+        } catch (IllegalArgumentException e) {
+            cacheStrategy = CacheInterceptor.CacheStrategy.NETWORK_FIRST;
+        }
+        
+        // Recreate cache interceptor with new settings
+        cacheInterceptor = new CacheInterceptor(
+            cacheManager,
+            cacheStrategy,
+            maxAge,
+            true
+        );
+        
+        // Rebuild HTTP client with new cache interceptor
+        rebuildHttpClient();
+        
+        JSObject result = new JSObject();
+        result.put("enabled", true);
+        result.put("strategy", cacheStrategy.toString());
+        result.put("maxAge", maxAge);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void disableCache(PluginCall call) {
+        cacheInterceptor = new CacheInterceptor(
+            cacheManager,
+            CacheInterceptor.CacheStrategy.NETWORK_ONLY,
+            0,
+            false
+        );
+        
+        rebuildHttpClient();
+        
+        JSObject result = new JSObject();
+        result.put("enabled", false);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void getCacheStats(PluginCall call) {
+        CacheManager.CacheStats stats = cacheManager.getStats();
+        call.resolve(stats.toJSObject());
+    }
+
+    @PluginMethod
+    public void clearCache(PluginCall call) {
+        cacheManager.clear();
+        
+        JSObject result = new JSObject();
+        result.put("cleared", true);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void cleanupCache(PluginCall call) {
+        int cleaned = cacheManager.cleanup();
+        
+        JSObject result = new JSObject();
+        result.put("cleaned", cleaned);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void getCacheKeys(PluginCall call) {
+        List<String> keys = cacheManager.keys();
+        
+        JSArray keysArray = new JSArray();
+        for (String key : keys) {
+            keysArray.put(key);
+        }
+        
+        JSObject result = new JSObject();
+        result.put("keys", keysArray);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void deleteCacheEntry(PluginCall call) {
+        String key = call.getString("key");
+        if (key == null) {
+            call.reject("Key is required");
+            return;
+        }
+        
+        boolean deleted = cacheManager.delete(key);
+        
+        JSObject result = new JSObject();
+        result.put("deleted", deleted);
+        call.resolve(result);
+    }
+
+    private void rebuildHttpClient() {
+        httpClient = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .connectionPool(new ConnectionPool(5, 5, TimeUnit.MINUTES))
+            .protocols(Arrays.asList(Protocol.HTTP_2, Protocol.HTTP_1_1))
+            .connectionSpecs(Arrays.asList(
+                ConnectionSpec.MODERN_TLS,
+                ConnectionSpec.COMPATIBLE_TLS,
+                ConnectionSpec.CLEARTEXT
+            ))
+            .pingInterval(10, TimeUnit.SECONDS)
+            .addInterceptor(cacheInterceptor)
+            .addInterceptor(pluginInterceptor)
+            .addInterceptor(new okhttp3.logging.HttpLoggingInterceptor(new okhttp3.logging.HttpLoggingInterceptor.Logger() {
+                @Override
+                public void log(String message) {
+                    Log.d(TAG, "HTTP: " + message);
+                }
+            }).setLevel(okhttp3.logging.HttpLoggingInterceptor.Level.BASIC))
+            .build();
     }
 
     @PluginMethod
@@ -491,7 +676,63 @@ public class CorsBypassPlugin extends Plugin {
         data.put("error", error);
         notifyListeners("sseError", data);
     }
+    // ==================== Interceptor Management ====================
 
+    @PluginMethod
+    public void addInterceptor(PluginCall call) {
+        JSObject options = call.getObject("options", new JSObject());
+        
+        try {
+            String id = pluginInterceptor.addInterceptor(options);
+            
+            JSObject result = new JSObject();
+            result.put("id", id);
+            result.put("name", options.optString("name", null));
+            
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("Failed to add interceptor: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void removeInterceptor(PluginCall call) {
+        String id = call.getString("handle");
+        if (id == null) {
+            // Try to get id from handle object
+            JSObject handle = call.getObject("handle");
+            if (handle != null) {
+                id = handle.getString("id");
+            }
+        }
+        
+        if (id == null) {
+            call.reject("Interceptor ID is required");
+            return;
+        }
+        
+        boolean removed = pluginInterceptor.removeInterceptor(id);
+        if (removed) {
+            call.resolve();
+        } else {
+            call.reject("Interceptor not found");
+        }
+    }
+
+    @PluginMethod
+    public void removeAllInterceptors(PluginCall call) {
+        pluginInterceptor.removeAllInterceptors();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void getInterceptors(PluginCall call) {
+        JSArray interceptors = pluginInterceptor.getAllInterceptors();
+        JSObject result = new JSObject();
+        result.put("interceptors", interceptors);
+        call.resolve(result);
+    }
+    
     public void notifySSEClose(String connectionId) {
         JSObject data = new JSObject();
         data.put("connectionId", connectionId);

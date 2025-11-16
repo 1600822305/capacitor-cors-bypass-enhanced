@@ -9,18 +9,11 @@ import type {
   HttpRequestOptions,
   HttpResponse,
   StreamRequestOptions,
-  StreamChunkEvent,
-  StreamStatusEvent,
   SSEOptions,
   SSEConnectionOptions,
   SSEConnection,
   WebSocketConnectionOptions,
   WebSocketConnection,
-  SSEMessageEvent,
-  SSEConnectionChangeEvent,
-  WebSocketMessageEvent,
-  WebSocketConnectionChangeEvent,
-  MCPResponse,
   MCPClientOptions,
   MCPClient,
   MCPResourceList,
@@ -31,20 +24,47 @@ import type {
   MCPPrompt,
   MCPSamplingRequest,
   MCPSamplingResponse,
+  Interceptor,
+  InterceptorOptions,
+  InterceptorHandle,
 } from './definitions';
+ 
+
+// Import modular managers
+import { UtilsManager } from './web/utils';
+import { HttpManager } from './web/http';
+import { StreamManager } from './web/stream';
+import { SSEManager } from './web/sse';
+import { WebSocketManager } from './web/websocket';
+import { InterceptorManager } from './web/interceptor';
 
 export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
-  private sseConnections = new Map<string, EventSource>();
-  private wsConnections = new Map<string, WebSocket>();
+  private proxyServerUrl: string | null = null;
+  
+  // Modular managers
+  private utilsManager: UtilsManager;
+  private httpManager: HttpManager;
+  private streamManager: StreamManager;
+  private sseManager: SSEManager;
+  private wsManager: WebSocketManager;
+  private interceptorManager: InterceptorManager;
+  
+  // MCP specific
   private mcpClients = new Map<string, any>();
   private mcpTransports = new Map<string, any>();
-  private streamControllers = new Map<string, AbortController>();
   private connectionCounter = 0;
-  private streamCounter = 0;
-  private proxyServerUrl: string | null = null;
 
   constructor() {
     super();
+    
+    // Initialize managers
+    this.utilsManager = new UtilsManager();
+    this.httpManager = new HttpManager(this.proxyServerUrl);
+    this.streamManager = new StreamManager(this.proxyServerUrl, this.notifyListeners.bind(this));
+    this.sseManager = new SSEManager(this.proxyServerUrl, this.notifyListeners.bind(this));
+    this.wsManager = new WebSocketManager(this.notifyListeners.bind(this));
+    this.interceptorManager = new InterceptorManager();
+    
     // Try to detect if a proxy server is available
     this.detectProxyServer();
   }
@@ -73,6 +93,9 @@ export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
 
         if (response.ok) {
           this.proxyServerUrl = url;
+          this.httpManager.setProxyServer(url);
+          this.streamManager = new StreamManager(this.proxyServerUrl, this.notifyListeners.bind(this));
+          this.sseManager = new SSEManager(this.proxyServerUrl, this.notifyListeners.bind(this));
           console.log(`🔧 CORS Proxy server detected at: ${url}`);
           break;
         }
@@ -92,562 +115,82 @@ export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
    */
   setProxyServer(url: string) {
     this.proxyServerUrl = url;
+    this.httpManager.setProxyServer(url);
+    this.streamManager = new StreamManager(this.proxyServerUrl, this.notifyListeners.bind(this));
+    this.sseManager = new SSEManager(this.proxyServerUrl, this.notifyListeners.bind(this));
     console.log(`🔧 Proxy server set to: ${url}`);
   }
 
   async request(options: HttpRequestOptions): Promise<HttpResponse> {
-    const {
-      url,
-      method = 'GET',
-      headers = {},
-      data,
-      params,
-      timeout = 30000,
-      responseType = 'json',
-      followRedirects = true,
-    } = options;
-
-    // Build URL with query parameters
-    let requestUrl = url;
-    if (params) {
-      const urlParams = new URLSearchParams(params);
-      requestUrl += (url.includes('?') ? '&' : '?') + urlParams.toString();
-    }
-
-    // Use proxy server if available and URL is cross-origin
-    let finalUrl = requestUrl;
-    let fetchOptions: RequestInit = {
-      method,
-      headers,
-      redirect: followRedirects ? 'follow' : 'manual',
-    };
-
-    if (this.proxyServerUrl && this.isCrossOrigin(requestUrl)) {
-      console.log(`🔧 Using proxy server for: ${requestUrl}`);
-      finalUrl = `${this.proxyServerUrl}/proxy/${encodeURIComponent(requestUrl)}`;
-    }
-
-    // Create AbortController for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-    fetchOptions.signal = controller.signal;
-
-    try {
-      // Add body for methods that support it
-      if (data && ['POST', 'PUT', 'PATCH'].includes(method)) {
-        if (typeof data === 'string') {
-          fetchOptions.body = data;
-        } else {
-          fetchOptions.body = JSON.stringify(data);
-          if (!headers['Content-Type']) {
-            headers['Content-Type'] = 'application/json';
-          }
-        }
-      }
-
-      const response = await fetch(finalUrl, fetchOptions);
-      clearTimeout(timeoutId);
-
-      // Parse response based on responseType
-      let responseData: any;
-      switch (responseType) {
-        case 'text':
-          responseData = await response.text();
-          break;
-        case 'blob':
-          responseData = await response.blob();
-          break;
-        case 'arraybuffer':
-          responseData = await response.arrayBuffer();
-          break;
-        case 'json':
-        default:
-          try {
-            responseData = await response.json();
-          } catch {
-            responseData = await response.text();
-          }
-          break;
-      }
-
-      // Convert Headers to plain object
-      const responseHeaders: { [key: string]: string } = {};
-      response.headers.forEach((value, key) => {
-        responseHeaders[key] = value;
-      });
-
-      return {
-        status: response.status,
-        statusText: response.statusText,
-        headers: responseHeaders,
-        data: responseData,
-        url: response.url,
-      };
-    } catch (error) {
-      clearTimeout(timeoutId);
-
-      // If proxy failed and we have a proxy server, try direct request as fallback
-      if (this.proxyServerUrl && finalUrl.includes(this.proxyServerUrl)) {
-        console.warn(`⚠️ Proxy request failed, trying direct request: ${error}`);
-        return this.request({ ...options, url: requestUrl });
-      }
-
-      throw error;
-    }
+    const interceptors = this.interceptorManager.getInterceptorsInternal();
+    return this.httpManager.request(options, interceptors);
   }
 
   async get(options: HttpRequestOptions): Promise<HttpResponse> {
-    return this.request({ ...options, method: 'GET' });
+    const interceptors = this.interceptorManager.getInterceptorsInternal();
+    return this.httpManager.get(options, interceptors);
   }
 
   async post(options: HttpRequestOptions): Promise<HttpResponse> {
-    return this.request({ ...options, method: 'POST' });
+    const interceptors = this.interceptorManager.getInterceptorsInternal();
+    return this.httpManager.post(options, interceptors);
   }
 
   async put(options: HttpRequestOptions): Promise<HttpResponse> {
-    return this.request({ ...options, method: 'PUT' });
+    const interceptors = this.interceptorManager.getInterceptorsInternal();
+    return this.httpManager.put(options, interceptors);
   }
 
   async patch(options: HttpRequestOptions): Promise<HttpResponse> {
-    return this.request({ ...options, method: 'PATCH' });
+    const interceptors = this.interceptorManager.getInterceptorsInternal();
+    return this.httpManager.patch(options, interceptors);
   }
 
   async delete(options: HttpRequestOptions): Promise<HttpResponse> {
-    return this.request({ ...options, method: 'DELETE' });
+    const interceptors = this.interceptorManager.getInterceptorsInternal();
+    return this.httpManager.delete(options, interceptors);
   }
 
   /**
-   * 流式HTTP请求 - 支持AI模型的流式输出
+   * Streaming HTTP request - supports AI model streaming output
    */
   async streamRequest(options: StreamRequestOptions): Promise<{ streamId: string }> {
-    const streamId = `stream_${++this.streamCounter}`;
-    const {
-      url,
-      method = 'POST',
-      headers = {},
-      data,
-      params,
-      timeout = 60000,
-      followRedirects = true,
-    } = options;
-
-    // Build URL with query parameters
-    let requestUrl = url;
-    if (params) {
-      const urlParams = new URLSearchParams(params);
-      requestUrl += (url.includes('?') ? '&' : '?') + urlParams.toString();
-    }
-
-    // Use proxy server if available and URL is cross-origin
-    let finalUrl = requestUrl;
-    if (this.proxyServerUrl && this.isCrossOrigin(requestUrl)) {
-      console.log(`🔧 Using proxy server for streaming: ${requestUrl}`);
-      finalUrl = `${this.proxyServerUrl}/proxy/${encodeURIComponent(requestUrl)}`;
-    }
-
-    // Create AbortController for this stream
-    const controller = new AbortController();
-    this.streamControllers.set(streamId, controller);
-
-    // Set timeout
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-      this.notifyListeners('streamStatus', {
-        streamId,
-        status: 'error',
-        error: 'Request timeout',
-      } as StreamStatusEvent);
-    }, timeout);
-
-    try {
-      // Prepare fetch options
-      const fetchOptions: RequestInit = {
-        method,
-        headers: {
-          ...headers,
-          'Accept': 'text/event-stream, application/json, text/plain, */*',
-        },
-        signal: controller.signal,
-        redirect: followRedirects ? 'follow' : 'manual',
-      };
-
-      // Add body for methods that support it
-      if (data && ['POST', 'PUT', 'PATCH'].includes(method)) {
-        if (typeof data === 'string') {
-          fetchOptions.body = data;
-        } else {
-          fetchOptions.body = JSON.stringify(data);
-          if (!headers['Content-Type']) {
-            fetchOptions.headers = {
-              ...fetchOptions.headers,
-              'Content-Type': 'application/json',
-            };
-          }
-        }
-      }
-
-      console.log(`🌊 Starting stream request: ${streamId} to ${finalUrl}`);
-
-      // Start the fetch request
-      fetch(finalUrl, fetchOptions)
-        .then(async (response) => {
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-
-          // Convert headers to plain object
-          const responseHeaders: { [key: string]: string } = {};
-          response.headers.forEach((value, key) => {
-            responseHeaders[key] = value;
-          });
-
-          // Notify stream started
-          this.notifyListeners('streamStatus', {
-            streamId,
-            status: 'started',
-            statusCode: response.status,
-            headers: responseHeaders,
-          } as StreamStatusEvent);
-
-          // Read the stream
-          const reader = response.body?.getReader();
-          const decoder = new TextDecoder();
-
-          if (!reader) {
-            throw new Error('Response body is not readable');
-          }
-
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-
-              if (done) {
-                // Stream completed
-                this.notifyListeners('streamChunk', {
-                  streamId,
-                  data: '',
-                  done: true,
-                } as StreamChunkEvent);
-
-                this.notifyListeners('streamStatus', {
-                  streamId,
-                  status: 'completed',
-                } as StreamStatusEvent);
-
-                this.streamControllers.delete(streamId);
-                break;
-              }
-
-              // Decode and send chunk
-              const chunk = decoder.decode(value, { stream: true });
-              
-              this.notifyListeners('streamChunk', {
-                streamId,
-                data: chunk,
-                done: false,
-              } as StreamChunkEvent);
-            }
-          } catch (error: any) {
-            if (error.name === 'AbortError') {
-              this.notifyListeners('streamStatus', {
-                streamId,
-                status: 'cancelled',
-              } as StreamStatusEvent);
-            } else {
-              throw error;
-            }
-          }
-        })
-        .catch((error) => {
-          clearTimeout(timeoutId);
-          
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          
-          this.notifyListeners('streamChunk', {
-            streamId,
-            data: '',
-            done: true,
-            error: errorMessage,
-          } as StreamChunkEvent);
-
-          this.notifyListeners('streamStatus', {
-            streamId,
-            status: 'error',
-            error: errorMessage,
-          } as StreamStatusEvent);
-
-          this.streamControllers.delete(streamId);
-        });
-
-      return { streamId };
-    } catch (error) {
-      clearTimeout(timeoutId);
-      this.streamControllers.delete(streamId);
-      throw error;
-    }
+    return this.streamManager.streamRequest(options);
   }
 
   /**
-   * 取消流式请求
+   * Cancel streaming request
    */
   async cancelStream(options: { streamId: string }): Promise<void> {
-    const { streamId } = options;
-    const controller = this.streamControllers.get(streamId);
-
-    if (controller) {
-      controller.abort();
-      this.streamControllers.delete(streamId);
-      
-      this.notifyListeners('streamStatus', {
-        streamId,
-        status: 'cancelled',
-      } as StreamStatusEvent);
-    }
+    return this.streamManager.cancelStream(options);
   }
 
   async startSSE(options: SSEOptions): Promise<{ connectionId: string }> {
-    const connectionId = `sse_${++this.connectionCounter}`;
-    const { url, headers = {}, withCredentials = false, reconnectTimeout = 3000 } = options;
-
-    // Use proxy server for SSE if available and cross-origin
-    let sseUrl = url;
-    if (this.proxyServerUrl && this.isCrossOrigin(url)) {
-      console.log(`🔧 Using SSE proxy for: ${url}`);
-      sseUrl = `${this.proxyServerUrl}/sse-proxy/${encodeURIComponent(url)}`;
-    }
-
-    const eventSource = new EventSource(sseUrl);
-    this.sseConnections.set(connectionId, eventSource);
-
-    eventSource.onopen = () => {
-      this.notifyListeners('sseOpen', {
-        connectionId,
-        status: 'connected',
-      });
-    };
-
-    eventSource.onmessage = (event) => {
-      this.notifyListeners('sseMessage', {
-        connectionId,
-        type: 'message',
-        data: event.data,
-        id: event.lastEventId,
-      });
-    };
-
-    eventSource.onerror = () => {
-      this.notifyListeners('sseError', {
-        connectionId,
-        error: 'Connection error',
-      });
-    };
-
-    return { connectionId };
+    return this.sseManager.startSSE(options);
   }
 
   async stopSSE(options: { connectionId: string }): Promise<void> {
-    const { connectionId } = options;
-    const connection = this.sseConnections.get(connectionId);
-
-    if (connection) {
-      connection.close();
-      this.sseConnections.delete(connectionId);
-      this.notifyListeners('sseClose', {
-        connectionId,
-        status: 'disconnected',
-      });
-    }
-  }
-
-  private isCrossOrigin(url: string): boolean {
-    try {
-      const targetUrl = new URL(url);
-      const currentUrl = new URL(window.location.href);
-
-      return targetUrl.origin !== currentUrl.origin;
-    } catch {
-      return false;
-    }
+    return this.sseManager.stopSSE(options);
   }
 
   async createSSEConnection(options: SSEConnectionOptions): Promise<SSEConnection> {
-    const connectionId = `sse_${++this.connectionCounter}`;
-    const { url, headers = {}, reconnect = {} } = options;
-
-    const {
-      enabled: reconnectEnabled = true,
-      initialDelay = 1000,
-      maxDelay = 30000,
-      maxAttempts = 10,
-    } = reconnect;
-
-    let retryCount = 0;
-    let retryDelay = initialDelay;
-
-    const createConnection = () => {
-      // Use proxy server for SSE if available and cross-origin
-      let sseUrl = url;
-      if (this.proxyServerUrl && this.isCrossOrigin(url)) {
-        console.log(`🔧 Using SSE proxy for: ${url}`);
-        sseUrl = `${this.proxyServerUrl}/sse-proxy/${encodeURIComponent(url)}`;
-      }
-
-      const eventSource = new EventSource(sseUrl);
-      this.sseConnections.set(connectionId, eventSource);
-
-      eventSource.onopen = () => {
-        retryCount = 0;
-        retryDelay = initialDelay;
-        this.notifyListeners('sseConnectionChange', {
-          connectionId,
-          status: 'connected',
-        });
-      };
-
-      eventSource.onmessage = (event) => {
-        this.notifyListeners('sseMessage', {
-          connectionId,
-          type: 'message',
-          data: event.data,
-          id: event.lastEventId,
-        });
-      };
-
-      eventSource.onerror = () => {
-        this.notifyListeners('sseConnectionChange', {
-          connectionId,
-          status: 'error',
-          error: 'Connection error',
-        });
-
-        if (reconnectEnabled && retryCount < maxAttempts) {
-          setTimeout(() => {
-            retryCount++;
-            retryDelay = Math.min(retryDelay * 2, maxDelay);
-            eventSource.close();
-            createConnection();
-          }, retryDelay);
-        } else {
-          this.sseConnections.delete(connectionId);
-        }
-      };
-
-      // Add custom event listeners
-      eventSource.addEventListener('error', (event) => {
-        this.notifyListeners('sseMessage', {
-          connectionId,
-          type: 'error',
-          data: 'Connection error',
-        });
-      });
-    };
-
-    this.notifyListeners('sseConnectionChange', {
-      connectionId,
-      status: 'connecting',
-    });
-
-    createConnection();
-
-    return {
-      connectionId,
-      status: 'connecting',
-    };
+    return this.sseManager.createSSEConnection(options);
   }
 
   async closeSSEConnection(options: { connectionId: string }): Promise<void> {
-    const { connectionId } = options;
-    const connection = this.sseConnections.get(connectionId);
-    
-    if (connection) {
-      connection.close();
-      this.sseConnections.delete(connectionId);
-      this.notifyListeners('sseConnectionChange', {
-        connectionId,
-        status: 'disconnected',
-      });
-    }
+    return this.sseManager.closeSSEConnection(options);
   }
 
   async createWebSocketConnection(options: WebSocketConnectionOptions): Promise<WebSocketConnection> {
-    const connectionId = `ws_${++this.connectionCounter}`;
-    const { url, protocols, headers, timeout = 10000 } = options;
-
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url, protocols);
-      this.wsConnections.set(connectionId, ws);
-
-      const timeoutId = setTimeout(() => {
-        ws.close();
-        this.wsConnections.delete(connectionId);
-        reject(new Error('WebSocket connection timeout'));
-      }, timeout);
-
-      ws.onopen = () => {
-        clearTimeout(timeoutId);
-        this.notifyListeners('webSocketConnectionChange', {
-          connectionId,
-          status: 'connected',
-        });
-        resolve({
-          connectionId,
-          status: 'connected',
-        });
-      };
-
-      ws.onmessage = (event) => {
-        this.notifyListeners('webSocketMessage', {
-          connectionId,
-          data: event.data,
-          type: typeof event.data === 'string' ? 'text' : 'binary',
-        });
-      };
-
-      ws.onerror = () => {
-        clearTimeout(timeoutId);
-        this.notifyListeners('webSocketConnectionChange', {
-          connectionId,
-          status: 'error',
-          error: 'WebSocket connection error',
-        });
-      };
-
-      ws.onclose = () => {
-        this.wsConnections.delete(connectionId);
-        this.notifyListeners('webSocketConnectionChange', {
-          connectionId,
-          status: 'disconnected',
-        });
-      };
-
-      this.notifyListeners('webSocketConnectionChange', {
-        connectionId,
-        status: 'connecting',
-      });
-    });
+    return this.wsManager.createWebSocketConnection(options);
   }
 
   async closeWebSocketConnection(options: { connectionId: string }): Promise<void> {
-    const { connectionId } = options;
-    const connection = this.wsConnections.get(connectionId);
-    
-    if (connection) {
-      connection.close();
-      this.wsConnections.delete(connectionId);
-    }
+    return this.wsManager.closeWebSocketConnection(options);
   }
 
   async sendWebSocketMessage(options: { connectionId: string; message: string }): Promise<void> {
-    const { connectionId, message } = options;
-    const connection = this.wsConnections.get(connectionId);
-
-    if (connection && connection.readyState === WebSocket.OPEN) {
-      connection.send(message);
-    } else {
-      throw new Error('WebSocket connection not found or not open');
-    }
+    return this.wsManager.sendWebSocketMessage(options);
   }
 
   // ===== MCP Protocol Methods =====
@@ -656,19 +199,19 @@ export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
     const connectionId = `mcp_${++this.connectionCounter}`;
 
     try {
-      // 创建SSE传输层
+      // Create SSE transport layer
       let transport: any;
 
-      if (this.proxyServerUrl && this.isCrossOrigin(options.sseUrl)) {
-        // 使用代理服务器
+      if (this.proxyServerUrl && this.utilsManager.isCrossOrigin(options.sseUrl)) {
+        // Use proxy server
         const proxyUrl = `${this.proxyServerUrl}/sse-proxy/${encodeURIComponent(options.sseUrl)}`;
         transport = new SSEClientTransport(new URL(proxyUrl));
       } else {
-        // 直接连接
+        // Direct connection
         transport = new SSEClientTransport(new URL(options.sseUrl));
       }
 
-      // 创建MCP客户端
+      // Create MCP client
       const client = new Client(
         {
           name: options.clientInfo.name,
@@ -682,14 +225,14 @@ export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
         }
       );
 
-      // 连接到服务器
+      // Connect to server
       await client.connect(transport);
 
-      // 存储客户端和传输层
+      // Store client and transport
       this.mcpClients.set(connectionId, client);
       this.mcpTransports.set(connectionId, transport);
 
-      console.log(`✅ MCP客户端已连接: ${connectionId}`);
+      console.log(`✅ MCP client connected: ${connectionId}`);
 
       return {
         connectionId,
@@ -698,7 +241,7 @@ export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
         protocolVersion: '2025-03-26'
       };
     } catch (error) {
-      console.error(`❌ MCP客户端连接失败:`, error);
+      console.error(`❌ MCP client connection failed:`, error);
       throw new Error(`Failed to create MCP client: ${error}`);
     }
   }
@@ -807,8 +350,8 @@ export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
       });
 
       return {
-        description: result.description || '',
-        messages: (result.messages as any) || []
+        description: result.description,
+        messages: result.messages || []
       };
     } catch (error) {
       throw new Error(`Failed to get MCP prompt: ${error}`);
@@ -816,8 +359,38 @@ export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
   }
 
   async sendMCPSampling(options: { connectionId: string; request: MCPSamplingRequest }): Promise<MCPSamplingResponse> {
-    // MCP SDK doesn't directly support sampling, this would need to be implemented
-    // based on the specific server's sampling capabilities
-    throw new Error('MCP sampling not yet implemented with SDK');
+    const client = this.mcpClients.get(options.connectionId);
+    if (!client) {
+      throw new Error('MCP client not found');
+    }
+
+    try {
+      const result = await client.request({
+        method: options.request.method,
+        params: options.request.params
+      });
+
+      return result;
+    } catch (error) {
+      throw new Error(`Failed to send MCP sampling request: ${error}`);
+    }
+  }
+
+  // ==================== Interceptor Management ====================
+
+  async addInterceptor(interceptor: Interceptor, options?: InterceptorOptions): Promise<InterceptorHandle> {
+    return this.interceptorManager.addInterceptor(interceptor, options);
+  }
+
+  async removeInterceptor(handle: InterceptorHandle | string): Promise<void> {
+    return this.interceptorManager.removeInterceptor(handle);
+  }
+
+  async removeAllInterceptors(): Promise<void> {
+    return this.interceptorManager.removeAllInterceptors();
+  }
+
+  async getInterceptors(): Promise<InterceptorHandle[]> {
+    return this.interceptorManager.getInterceptors();
   }
 }

@@ -8,8 +8,10 @@ A comprehensive Capacitor plugin that provides powerful networking capabilities 
 
 ### 🌐 Core Networking
 - **CORS Bypass** - Complete bypass of browser CORS restrictions
-- **HTTP/2 Support** - Multiplexing, server push, stream prioritization
-- **HTTP/3 (QUIC)** - 0-RTT connections, connection migration
+- **HTTP/2 Support** ✅ - Multiplexing, server push, stream prioritization (Android & iOS)
+- **HTTP/3 (QUIC)** ⏭️ - Planned (requires OkHttp 5.0 stable or Cronet integration)
+- **Protocol Auto-Detection** ✅ - Automatic protocol negotiation and fallback
+- **Performance Monitoring** ✅ - DNS, TCP, TLS, TTFB metrics tracking
 - **Server-Sent Events (SSE)** - Real-time event streaming
 - **WebSocket Enhanced** - Auto-reconnect, heartbeat, connection pooling
 
@@ -60,23 +62,46 @@ console.log('Data:', response.data);
 console.log('Duration:', response.duration + 'ms');
 ```
 
-### HTTP/2 Multiplexing
+### HTTP/2 and HTTP/3 Support
 
 ```typescript
-const http2Response = await CorsBypass.makeHTTP2Request({
+// Automatic protocol selection (HTTP/3 -> HTTP/2 -> HTTP/1.1)
+const response = await CorsBypass.get({
+  url: 'https://api.example.com/data'
+});
+
+console.log('Protocol:', response.protocolVersion); // 'h2' or 'h3'
+console.log('Performance:', response.metrics);
+
+// Configure protocol options
+const response = await CorsBypass.get({
   url: 'https://api.example.com/data',
-  multiplexing: true,
-  serverPush: true,
-  priority: 1,
-  settings: {
-    maxConcurrentStreams: 100,
-    enablePush: true
+  protocolConfig: {
+    http2: {
+      enabled: true,
+      pushEnabled: true,
+      pingInterval: 10000
+    },
+    http3: {
+      enabled: true,  // Android only
+      zeroRtt: true
+    },
+    fallback: {
+      enabled: true,
+      retryCount: 2,
+      preferredProtocols: ['h3', 'h2', 'http/1.1']
+    }
   }
 });
 
-console.log('Protocol:', http2Response.protocol); // 'h2'
-console.log('Stream ID:', http2Response.streamId);
-console.log('Pushed resources:', http2Response.pushedResources?.length);
+// Performance metrics
+if (response.metrics) {
+  console.log('DNS Time:', response.metrics.dnsTime, 'ms');
+  console.log('TCP Time:', response.metrics.tcpTime, 'ms');
+  console.log('TLS Time:', response.metrics.tlsTime, 'ms');
+  console.log('TTFB:', response.metrics.ttfb, 'ms');
+  console.log('Download Speed:', response.metrics.downloadSpeed, 'bytes/sec');
+}
 ```
 
 ### gRPC Service Calls

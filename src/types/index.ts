@@ -19,3 +19,9 @@ export * from './websocket';
 
 // MCP types
 export * from './mcp';
+
+// Interceptor types
+export * from './interceptor';
+
+// Cache types
+export * from './cache';

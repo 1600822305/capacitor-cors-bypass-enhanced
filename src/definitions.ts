@@ -29,6 +29,9 @@ import type {
   MCPSamplingRequest,
   MCPSamplingResponse,
   PluginListenerHandle,
+  Interceptor,
+  InterceptorOptions,
+  InterceptorHandle,
 } from './types';
 
 /**
@@ -164,4 +167,32 @@ export interface CorsBypassPlugin {
    * Remove all listeners for this plugin
    */
   removeAllListeners(): Promise<void>;
+
+  /**
+   * Add an interceptor to the request/response chain
+   *
+   * @param interceptor - The interceptor instance
+   * @param options - Optional configuration for the interceptor
+   * @returns A handle to manage the interceptor
+   */
+  addInterceptor(interceptor: Interceptor, options?: InterceptorOptions): Promise<InterceptorHandle>;
+
+  /**
+   * Remove an interceptor by handle or ID
+   *
+   * @param handle - The interceptor handle or ID to remove
+   */
+  removeInterceptor(handle: InterceptorHandle | string): Promise<void>;
+
+  /**
+   * Remove all interceptors
+   */
+  removeAllInterceptors(): Promise<void>;
+
+  /**
+   * Get all registered interceptors
+   *
+   * @returns Array of interceptor handles
+   */
+  getInterceptors(): Promise<InterceptorHandle[]>;
 }

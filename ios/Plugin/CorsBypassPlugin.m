@@ -12,4 +12,17 @@ CAP_PLUGIN(CorsBypassPlugin, "CorsBypass",
            CAP_PLUGIN_METHOD(delete, CAPPluginReturnPromise);
            CAP_PLUGIN_METHOD(startSSE, CAPPluginReturnPromise);
            CAP_PLUGIN_METHOD(stopSSE, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(streamRequest, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(cancelStream, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(addInterceptor, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(removeInterceptor, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(removeAllInterceptors, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(getInterceptors, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(enableCache, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(disableCache, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(getCacheStats, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(clearCache, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(cleanupCache, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(getCacheKeys, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(deleteCacheEntry, CAPPluginReturnPromise);
 )
