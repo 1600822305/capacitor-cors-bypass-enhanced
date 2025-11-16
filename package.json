@@ -1,7 +1,7 @@
 {
   "name": "capacitor-cors-bypass-enhanced",
-  "version": "1.0.6",
-  "description": "Enhanced Capacitor plugin for CORS bypass with HTTP/2, HTTP/3, gRPC, GraphQL, file operations, and advanced networking features",
+  "version": "1.0.8",
+  "description": "Enhanced Capacitor plugin for CORS bypass with HTTP/2, HTTP/3, gRPC, GraphQL, file operations, and advanced networking features. Modular TypeScript definitions for better maintainability.",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
   "types": "dist/esm/index.d.ts",
