@@ -621,20 +621,6 @@ public class CorsBypassPlugin: CAPPlugin {
             "status": "disconnected"
         ])
     }
-    
-    @objc func cancelStream(_ call: CAPPluginCall) {
-        guard let streamId = call.getString("streamId") else {
-            call.reject("Stream ID is required")
-            return
-        }
-        
-        if let task = streamTasks[streamId] {
-            task.cancel()
-            streamTasks.removeValue(forKey: streamId)
-        }
-        
-        call.resolve()
-    }
 }
 
 // MARK: - Stream Support

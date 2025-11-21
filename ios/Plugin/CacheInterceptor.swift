@@ -44,7 +44,7 @@ import Foundation
     /**
      * Intercept request
      */
-    @objc public func interceptRequest(
+    public func interceptRequest(
         url: String,
         method: String,
         headers: [String: String],

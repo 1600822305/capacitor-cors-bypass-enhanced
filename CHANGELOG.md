@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.11] - 2025-11-21
+
+### Fixed - 修复重复声明和 @objc 错误
+- **修复 `CorsBypassPlugin.swift` 重复声明错误**
+  - 删除第625行重复的 `cancelStream` 函数（已在第499行存在）
+  
+- **修复 `CacheInterceptor.swift` @objc 兼容性错误**
+  - 移除 `interceptRequest` 方法的 `@objc` 标记
+  - Swift 的 `Result` 类型无法在 Objective-C 中表示
+
+### 影响
+- 解决 iOS 构建中的函数重复声明错误
+- 解决 @objc 方法类型不兼容错误
+- 现在应该可以成功构建 iOS 应用
+
+---
+
 ## [1.0.10] - 2025-11-21
 
 ### Fixed - iOS构建修复
