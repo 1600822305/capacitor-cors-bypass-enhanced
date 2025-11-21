@@ -166,8 +166,8 @@ import Foundation
             } else {
                 // Success
                 if let response = response {
-                    let protocol = detectProtocol(from: response)
-                    print("[ProtocolManager] Request successful with protocol: \(protocol)")
+                    let detectedProtocol = detectProtocol(from: response)
+                    print("[ProtocolManager] Request successful with protocol: \(detectedProtocol)")
                 }
                 completion(data, response, error)
             }

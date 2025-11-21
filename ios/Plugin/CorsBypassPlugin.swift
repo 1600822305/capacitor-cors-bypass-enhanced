@@ -607,7 +607,7 @@ public class CorsBypassPlugin: CAPPlugin {
         let interceptors = pluginInterceptor.getAllInterceptors()
         call.resolve(["interceptors": interceptors])
     }
-}
+    
     func notifySSEError(connectionId: String, error: String) {
         notifyListeners("sseError", data: [
             "connectionId": connectionId,
@@ -620,6 +620,20 @@ public class CorsBypassPlugin: CAPPlugin {
             "connectionId": connectionId,
             "status": "disconnected"
         ])
+    }
+    
+    @objc func cancelStream(_ call: CAPPluginCall) {
+        guard let streamId = call.getString("streamId") else {
+            call.reject("Stream ID is required")
+            return
+        }
+        
+        if let task = streamTasks[streamId] {
+            task.cancel()
+            streamTasks.removeValue(forKey: streamId)
+        }
+        
+        call.resolve()
     }
 }
 
@@ -743,157 +757,5 @@ extension CorsBypassPlugin: URLSessionDataDelegate {
                 "status": "completed"
             ])
         }
-    }
-}
-
-        guard let streamId = call.getString("streamId") else {
-            call.reject("Stream ID is required")
-            return
-        }
-        
-        if let task = streamTasks[streamId] {
-            task.cancel()
-            streamTasks.removeValue(forKey: streamId)
-        }
-        
-        call.resolve()
-    }
-    
-    // MARK: - Interceptor Management
-    
-    @objc func addInterceptor(_ call: CAPPluginCall) {
-        guard let interceptor = pluginInterceptor else {
-            call.reject("Interceptor manager not initialized")
-            return
-        }
-        
-        let options = call.options ?? [:]
-        let id = interceptor.addInterceptor(options: options)
-        call.resolve(["id": id])
-    }
-    
-    @objc func removeInterceptor(_ call: CAPPluginCall) {
-        guard let interceptor = pluginInterceptor else {
-            call.reject("Interceptor manager not initialized")
-            return
-        }
-        
-        guard let id = call.getString("id") else {
-            call.reject("Interceptor ID is required")
-            return
-        }
-        
-        let removed = interceptor.removeInterceptor(id: id)
-        call.resolve(["removed": removed])
-    }
-    
-    @objc func removeAllInterceptors(_ call: CAPPluginCall) {
-        guard let interceptor = pluginInterceptor else {
-            call.reject("Interceptor manager not initialized")
-            return
-        }
-        
-        interceptor.removeAllInterceptors()
-        call.resolve()
-    }
-    
-    @objc func getInterceptors(_ call: CAPPluginCall) {
-        guard let interceptor = pluginInterceptor else {
-            call.reject("Interceptor manager not initialized")
-            return
-        }
-        
-        let interceptors = interceptor.getAllInterceptors()
-        call.resolve(["interceptors": interceptors])
-    }
-    
-    // MARK: - Internal Event Emitters
-    
-    func notifySSEOpen(connectionId: String) {
-        notifyListeners("sse:open", data: ["connectionId": connectionId])
-    }
-    
-    func notifySSEClose(connectionId: String) {
-        notifyListeners("sse:close", data: ["connectionId": connectionId])
-    }
-    
-    func notifySSEMessage(connectionId: String, data: String, id: String?, type: String?) {
-        var message: [String: Any] = [
-            "connectionId": connectionId,
-            "data": data
-        ]
-        if let id = id { message["id"] = id }
-        if let type = type { message["type"] = type }
-        
-        notifyListeners("sse:message", data: message)
-    }
-    
-    func notifySSEError(connectionId: String, error: String) {
-        notifyListeners("sse:error", data: [
-            "connectionId": connectionId,
-            "error": error
-        ])
-    }
-    
-    func notifyStreamData(streamId: String, data: String) {
-        notifyListeners("stream:data", data: [
-            "streamId": streamId,
-            "data": data
-        ])
-    }
-    
-    func notifyStreamEnd(streamId: String) {
-        notifyListeners("stream:end", data: ["streamId": streamId])
-    }
-    
-    func notifyStreamError(streamId: String, error: String) {
-        notifyListeners("stream:error", data: [
-            "streamId": streamId,
-            "error": error
-        ])
-    }
-}
-
-// MARK: - URLSession Delegates for Streaming
-
-private struct AssociatedKeys {
-    static var streamContext = "streamContext"
-}
-
-private class StreamContext {
-    let streamId: String
-    weak var plugin: CorsBypassPlugin?
-    
-    init(streamId: String, plugin: CorsBypassPlugin) {
-        self.streamId = streamId
-        self.plugin = plugin
-    }
-}
-
-extension CorsBypassPlugin: URLSessionDataDelegate, URLSessionTaskDelegate {
-    
-    public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard let context = objc_getAssociatedObject(dataTask, &AssociatedKeys.streamContext) as? StreamContext else {
-            return
-        }
-        
-        if let dataString = String(data: data, encoding: .utf8) {
-            context.plugin?.notifyStreamData(streamId: context.streamId, data: dataString)
-        }
-    }
-    
-    public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let context = objc_getAssociatedObject(task, &AssociatedKeys.streamContext) as? StreamContext else {
-            return
-        }
-        
-        if let error = error {
-            context.plugin?.notifyStreamError(streamId: context.streamId, error: error.localizedDescription)
-        } else {
-            context.plugin?.notifyStreamEnd(streamId: context.streamId)
-        }
-        
-        // Clean up
-        streamTasks.removeValue(forKey: context.streamId)
     }
 }

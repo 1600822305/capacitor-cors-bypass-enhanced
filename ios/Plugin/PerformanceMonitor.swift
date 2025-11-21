@@ -19,7 +19,7 @@ import Foundation
         var downloadTime: TimeInterval = 0
         var totalTime: TimeInterval = 0
         var downloadSpeed: Int64 = 0  // bytes per second
-        var protocol: String = "unknown"
+        var httpProtocol: String = "unknown"
         
         func toDictionary() -> [String: Any] {
             return [
@@ -30,7 +30,7 @@ import Foundation
                 "downloadTime": Int(downloadTime * 1000),
                 "totalTime": Int(totalTime * 1000),
                 "downloadSpeed": downloadSpeed,
-                "protocol": protocol
+                "httpProtocol": httpProtocol
             ]
         }
     }
@@ -61,7 +61,7 @@ import Foundation
             }
             
             if let httpResponse = response as? HTTPURLResponse {
-                metrics.protocol = ProtocolManager.detectProtocol(from: httpResponse)
+                metrics.httpProtocol = ProtocolManager.detectProtocol(from: httpResponse)
             }
             
             completionHandler(.allow)
@@ -121,7 +121,7 @@ import Foundation
             
             // Protocol
             if let negotiatedProtocol = transactionMetrics.networkProtocolName {
-                self.metrics.protocol = negotiatedProtocol
+                self.metrics.httpProtocol = negotiatedProtocol
             }
             
             print("[PerformanceMonitor] Metrics collected:")
@@ -132,7 +132,7 @@ import Foundation
             print("  Download: \(Int(self.metrics.downloadTime * 1000))ms")
             print("  Total: \(Int(self.metrics.totalTime * 1000))ms")
             print("  Speed: \(self.metrics.downloadSpeed) bytes/sec")
-            print("  Protocol: \(self.metrics.protocol)")
+            print("  Protocol: \(self.metrics.httpProtocol)")
         }
         
         func setStartTime(_ time: Date) {
@@ -214,7 +214,7 @@ import Foundation
         
         // Protocol
         if let negotiatedProtocol = transactionMetrics.networkProtocolName {
-            metrics.protocol = negotiatedProtocol
+            metrics.httpProtocol = negotiatedProtocol
         }
         
         return metrics
@@ -232,6 +232,6 @@ import Foundation
         print("  Download Time: \(Int(metrics.downloadTime * 1000))ms")
         print("  Total Time: \(Int(metrics.totalTime * 1000))ms")
         print("  Download Speed: \(metrics.downloadSpeed) bytes/sec")
-        print("  Protocol: \(metrics.protocol)")
+        print("  Protocol: \(metrics.httpProtocol)")
     }
 }

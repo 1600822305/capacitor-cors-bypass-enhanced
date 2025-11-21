@@ -1,0 +1,29 @@
+# Changelog
+
+## [1.0.10] - 2025-11-21
+
+### Fixed - iOS构建修复
+- **修复 `CorsBypassPlugin.swift` 严重结构错误**
+  - 移除第610行错误的类结束括号
+  - 修复 `cancelStream` 函数被孤立在类外部的问题
+  - 移除 `AssociatedKeys` 和 `StreamContext` 的重复定义
+  - 移除 `URLSessionDataDelegate` extension 的重复定义
+  - 重新组织类结构，确保所有函数都在正确的作用域内
+
+- **修复 `PerformanceMonitor.swift` Swift 保留关键字错误**
+  - 将变量名从 `protocol` 重命名为 `httpProtocol`
+  - 更新所有相关引用（7处）
+
+- **修复 `ProtocolManager.swift` Swift 保留关键字错误**
+  - 将局部变量从 `protocol` 重命名为 `detectedProtocol`
+
+### 影响
+- 解决了 iOS 构建失败问题（退出代码 65）
+- 解决了 40+ 个 Swift 编译错误
+- 现在可以成功构建 iOS 应用
+
+---
+
+## [1.0.9] - 2025-11-19
+- Previous version with iOS build issues
+
