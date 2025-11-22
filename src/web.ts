@@ -199,16 +199,38 @@ export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
     const connectionId = `mcp_${++this.connectionCounter}`;
 
     try {
-      // Create SSE transport layer
-      let transport: any;
+      // Determine transport type and URL
+      const transport = options.transport || 'streamablehttp';
+      
+      // Get URL (support both new and legacy config)
+      let url = options.url;
+      if (!url && options.sseUrl) {
+        // Backward compatibility: use sseUrl if url is not provided
+        url = options.sseUrl;
+      }
+      
+      if (!url) {
+        throw new Error('URL is required for MCP client (provide either "url" or "sseUrl")');
+      }
 
-      if (this.proxyServerUrl && this.utilsManager.isCrossOrigin(options.sseUrl)) {
-        // Use proxy server
-        const proxyUrl = `${this.proxyServerUrl}/sse-proxy/${encodeURIComponent(options.sseUrl)}`;
-        transport = new SSEClientTransport(new URL(proxyUrl));
+      // Create transport layer
+      let mcpTransport: any;
+
+      if (transport === 'streamablehttp') {
+        // Use new StreamableHTTP transport (recommended)
+        throw new Error('StreamableHTTP transport should use mcpClientManager. Use @capacitor/cors-bypass-enhanced web managers directly.');
+      } else if (transport === 'sse' || options.sseUrl) {
+        // Legacy SSE transport
+        if (this.proxyServerUrl && this.utilsManager.isCrossOrigin(url)) {
+          // Use proxy server
+          const proxyUrl = `${this.proxyServerUrl}/sse-proxy/${encodeURIComponent(url)}`;
+          mcpTransport = new SSEClientTransport(new URL(proxyUrl));
+        } else {
+          // Direct connection
+          mcpTransport = new SSEClientTransport(new URL(url));
+        }
       } else {
-        // Direct connection
-        transport = new SSEClientTransport(new URL(options.sseUrl));
+        throw new Error(`Unsupported transport type: ${transport}`);
       }
 
       // Create MCP client
@@ -226,11 +248,11 @@ export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
       );
 
       // Connect to server
-      await client.connect(transport);
+      await client.connect(mcpTransport);
 
       // Store client and transport
       this.mcpClients.set(connectionId, client);
-      this.mcpTransports.set(connectionId, transport);
+      this.mcpTransports.set(connectionId, mcpTransport);
 
       console.log(`✅ MCP client connected: ${connectionId}`);
 

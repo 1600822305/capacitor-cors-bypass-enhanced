@@ -2,6 +2,11 @@
  * Model Context Protocol (MCP) Types
  */
 
+/**
+ * MCP Transport Types
+ */
+export type MCPTransportType = 'sse' | 'streamablehttp' | 'stdio';
+
 export interface MCPResponse {
   jsonrpc: '2.0';
   id?: string | number;
@@ -15,14 +20,31 @@ export interface MCPResponse {
 
 export interface MCPClientOptions {
   /**
-   * MCP server SSE endpoint URL
+   * Transport type to use
+   * - 'streamablehttp': New single-endpoint transport (recommended)
+   * - 'sse': Legacy HTTP+SSE dual-endpoint transport
+   * - 'stdio': Standard input/output transport (not supported in browser)
    */
-  sseUrl: string;
+  transport?: MCPTransportType;
 
   /**
-   * MCP server POST endpoint URL for sending messages
+   * MCP server endpoint URL
+   * For StreamableHTTP: Single endpoint (e.g., 'https://example.com/mcp')
+   * For SSE: This will be used as sseUrl if sseUrl is not provided
    */
-  postUrl: string;
+  url?: string;
+
+  /**
+   * MCP server SSE endpoint URL (legacy, for backward compatibility)
+   * @deprecated Use 'url' with transport='sse' instead
+   */
+  sseUrl?: string;
+
+  /**
+   * MCP server POST endpoint URL for sending messages (legacy)
+   * @deprecated Use 'url' with transport='sse' instead
+   */
+  postUrl?: string;
 
   /**
    * Client information
@@ -57,6 +79,22 @@ export interface MCPClientOptions {
    * Connection timeout in milliseconds
    */
   timeout?: number;
+
+  /**
+   * Enable session resumability for StreamableHTTP
+   * Allows reconnecting and resuming message streams
+   */
+  resumable?: boolean;
+
+  /**
+   * Session ID for resuming StreamableHTTP connections
+   */
+  sessionId?: string;
+
+  /**
+   * Last received message sequence number for resumability
+   */
+  lastSequence?: number;
 }
 
 export interface MCPClient {

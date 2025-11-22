@@ -24,8 +24,10 @@ public class CorsBypassPlugin extends Plugin {
     private static final String TAG = "CorsBypassPlugin";
     private final Map<String, SSEConnection> sseConnections = new HashMap<>();
     private final Map<String, Call> streamRequests = new HashMap<>();
+    private final Map<String, StreamableHTTPTransport> mcpConnections = new HashMap<>();
     private int connectionCounter = 0;
     private int streamCounter = 0;
+    private int mcpConnectionCounter = 0;
     private OkHttpClient httpClient;
     private PluginInterceptor pluginInterceptor;
     private CacheManager cacheManager;
@@ -738,5 +740,208 @@ public class CorsBypassPlugin extends Plugin {
         data.put("connectionId", connectionId);
         data.put("status", "disconnected");
         notifyListeners("sseClose", data);
+    }
+
+    // ==================== MCP Client Methods ====================
+    
+    @PluginMethod
+    public void createMCPClient(PluginCall call) {
+        String url = call.getString("url");
+        String transport = call.getString("transport", "streamablehttp");
+        
+        // Backward compatibility: check for legacy sseUrl/postUrl
+        if (url == null) {
+            url = call.getString("sseUrl");
+            if (url != null) {
+                transport = "sse";
+            }
+        }
+        
+        if (url == null) {
+            call.reject("URL is required");
+            return;
+        }
+        
+        mcpConnectionCounter++;
+        String connectionId = "mcp_" + mcpConnectionCounter;
+        
+        try {
+            if ("streamablehttp".equals(transport)) {
+                // Use StreamableHTTP transport
+                boolean resumable = call.getBoolean("resumable", false);
+                String sessionId = call.getString("sessionId");
+                Long lastSequence = call.getLong("lastSequence", 0L);
+                
+                StreamableHTTPTransport mcpTransport = new StreamableHTTPTransport(
+                    url,
+                    httpClient,
+                    new StreamableHTTPTransport.StreamableHTTPCallback() {
+                        @Override
+                        public void onMessage(JSONObject message) {
+                            JSObject data = new JSObject();
+                            data.put("connectionId", connectionId);
+                            try {
+                                data.put("message", new JSObject(message.toString()));
+                            } catch (JSONException e) {
+                                Log.e(TAG, "Error converting message", e);
+                            }
+                            notifyListeners("mcpMessage", data);
+                        }
+                        
+                        @Override
+                        public void onError(String error) {
+                            JSObject data = new JSObject();
+                            data.put("connectionId", connectionId);
+                            data.put("error", error);
+                            notifyListeners("mcpError", data);
+                        }
+                        
+                        @Override
+                        public void onConnectionStateChange(String state) {
+                            JSObject data = new JSObject();
+                            data.put("connectionId", connectionId);
+                            data.put("state", state);
+                            notifyListeners("mcpStateChange", data);
+                        }
+                    },
+                    resumable
+                );
+                
+                mcpConnections.put(connectionId, mcpTransport);
+                
+                // Send initialize request
+                JSONObject initRequest = new JSONObject();
+                initRequest.put("jsonrpc", "2.0");
+                initRequest.put("id", 1);
+                initRequest.put("method", "initialize");
+                
+                JSONObject params = new JSONObject();
+                params.put("protocolVersion", call.getString("protocolVersion", "2025-03-26"));
+                
+                JSObject clientInfo = call.getObject("clientInfo");
+                if (clientInfo != null) {
+                    JSONObject clientInfoJson = new JSONObject();
+                    clientInfoJson.put("name", clientInfo.getString("name", "CapacitorMCPClient"));
+                    clientInfoJson.put("version", clientInfo.getString("version", "1.0.0"));
+                    params.put("clientInfo", clientInfoJson);
+                }
+                
+                JSObject capabilities = call.getObject("capabilities");
+                if (capabilities != null) {
+                    params.put("capabilities", new JSONObject(capabilities.toString()));
+                }
+                
+                initRequest.put("params", params);
+                
+                // Send initialize request and expect stream response
+                mcpTransport.sendMessage(initRequest, true);
+                
+                JSObject result = new JSObject();
+                result.put("connectionId", connectionId);
+                result.put("transport", "streamablehttp");
+                result.put("status", "connecting");
+                call.resolve(result);
+                
+            } else if ("sse".equals(transport)) {
+                // Legacy SSE transport
+                call.reject("Legacy SSE transport not yet implemented. Use StreamableHTTP instead.");
+            } else {
+                call.reject("Unsupported transport: " + transport);
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to create MCP client", e);
+            call.reject("Failed to create MCP client: " + e.getMessage());
+        }
+    }
+    
+    @PluginMethod
+    public void sendMCPMessage(PluginCall call) {
+        String connectionId = call.getString("connectionId");
+        if (connectionId == null) {
+            call.reject("Connection ID is required");
+            return;
+        }
+        
+        StreamableHTTPTransport transport = mcpConnections.get(connectionId);
+        if (transport == null) {
+            call.reject("MCP connection not found");
+            return;
+        }
+        
+        try {
+            JSObject messageObj = call.getObject("message");
+            if (messageObj == null) {
+                call.reject("Message is required");
+                return;
+            }
+            
+            JSONObject message = new JSONObject(messageObj.toString());
+            boolean expectStream = call.getBoolean("expectStream", false);
+            
+            transport.sendMessage(message, expectStream);
+            call.resolve();
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to send MCP message", e);
+            call.reject("Failed to send MCP message: " + e.getMessage());
+        }
+    }
+    
+    @PluginMethod
+    public void openMCPListenStream(PluginCall call) {
+        String connectionId = call.getString("connectionId");
+        if (connectionId == null) {
+            call.reject("Connection ID is required");
+            return;
+        }
+        
+        StreamableHTTPTransport transport = mcpConnections.get(connectionId);
+        if (transport == null) {
+            call.reject("MCP connection not found");
+            return;
+        }
+        
+        transport.openListenStream();
+        call.resolve();
+    }
+    
+    @PluginMethod
+    public void closeMCPClient(PluginCall call) {
+        String connectionId = call.getString("connectionId");
+        if (connectionId == null) {
+            call.reject("Connection ID is required");
+            return;
+        }
+        
+        StreamableHTTPTransport transport = mcpConnections.get(connectionId);
+        if (transport != null) {
+            transport.close();
+            mcpConnections.remove(connectionId);
+        }
+        
+        call.resolve();
+    }
+    
+    @PluginMethod
+    public void getMCPSessionInfo(PluginCall call) {
+        String connectionId = call.getString("connectionId");
+        if (connectionId == null) {
+            call.reject("Connection ID is required");
+            return;
+        }
+        
+        StreamableHTTPTransport transport = mcpConnections.get(connectionId);
+        if (transport == null) {
+            call.reject("MCP connection not found");
+            return;
+        }
+        
+        JSObject result = new JSObject();
+        result.put("connectionId", connectionId);
+        result.put("sessionId", transport.getSessionId());
+        result.put("lastSequence", transport.getLastSequence());
+        result.put("resumable", transport.isResumable());
+        call.resolve(result);
     }
 }

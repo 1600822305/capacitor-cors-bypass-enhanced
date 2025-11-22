@@ -18,7 +18,10 @@ A comprehensive Capacitor plugin that provides powerful networking capabilities 
 ### 🔧 Advanced Protocols
 - **gRPC** - High-performance RPC with streaming support
 - **GraphQL** - Queries, mutations, subscriptions with caching
-- **MCP (Model Context Protocol)** - AI model communication
+- **MCP (Model Context Protocol)** - AI model communication with StreamableHTTP support ✨NEW
+  - **StreamableHTTP Transport** ✅ - Single-endpoint, bidirectional communication
+  - **Session Resumability** ✅ - Reconnect and resume message streams
+  - **Backward Compatible** ✅ - Legacy SSE transport still supported
 
 ### 📁 File Operations
 - **File Download** - Progress tracking, resume, speed control
@@ -250,11 +253,14 @@ The plugin will be automatically registered on iOS.
 
 ## 📚 API Documentation
 
-For complete API documentation with all interfaces and options, see [PLUGIN_ENHANCED_FEATURES.md](./PLUGIN_ENHANCED_FEATURES.md).
+For complete API documentation with all interfaces and options, see:
+- [PLUGIN_ENHANCED_FEATURES.md](./PLUGIN_ENHANCED_FEATURES.md) - Complete API reference
+- [STREAMABLE_HTTP.md](./STREAMABLE_HTTP.md) - StreamableHTTP protocol guide (MCP) ✨NEW
 
 ## 🎯 Use Cases
 
 - **Enterprise API Integration** - Connect to internal APIs without CORS issues
+- **AI/LLM Integration** - Connect to MCP servers using StreamableHTTP ✨NEW
 - **Real-time Applications** - SSE, WebSocket, GraphQL subscriptions
 - **File Management** - Upload/download with progress tracking
 - **Performance Optimization** - HTTP/2, connection pooling, caching

@@ -15,6 +15,12 @@ export { SSEManager } from './sse';
 // WebSocket Manager
 export { WebSocketManager } from './websocket';
 
+// StreamableHTTP Transport (for MCP)
+export { StreamableHTTPTransport } from './streamable-http';
+
+// MCP Client Manager
+export { MCPClientManager, mcpClientManager } from './mcp-client';
+
 // Interceptor Manager
 export { InterceptorManager } from './interceptor';
 
