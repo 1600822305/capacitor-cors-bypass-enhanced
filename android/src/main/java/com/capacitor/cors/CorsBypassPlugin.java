@@ -169,17 +169,14 @@ public class CorsBypassPlugin extends Plugin {
             // Add body for non-GET requests
             RequestBody body = null;
             if (!method.equals("GET") && data != null) {
-                // Use application/json without charset to avoid MCP server rejection
-                MediaType mediaType = MediaType.parse("application/json");
-                if (data instanceof JSONObject) {
-                    body = RequestBody.create(mediaType, data.toString());
-                } else if (data instanceof String) {
-                    body = RequestBody.create(mediaType, (String) data);
+                // 强制手动设置 Content-Type（避免 OkHttp 自动添加 charset=utf-8）
+                if (!headers.has("Content-Type")) {
+                    requestBuilder.header("Content-Type", "application/json");
                 }
                 
-                if (!headers.has("Content-Type")) {
-                    requestBuilder.addHeader("Content-Type", "application/json");
-                }
+                // 使用 null MediaType 创建 RequestBody，避免 OkHttp 自动添加 charset
+                String bodyString = (data instanceof JSONObject) ? data.toString() : (String) data;
+                body = RequestBody.create(null, bodyString.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
 
             requestBuilder.method(method, body);
@@ -492,17 +489,14 @@ public class CorsBypassPlugin extends Plugin {
             // Add body for non-GET requests
             RequestBody body = null;
             if (!method.equals("GET") && data != null) {
-                // Use application/json without charset to avoid MCP server rejection
-                MediaType mediaType = MediaType.parse("application/json");
-                if (data instanceof JSONObject) {
-                    body = RequestBody.create(mediaType, data.toString());
-                } else if (data instanceof String) {
-                    body = RequestBody.create(mediaType, (String) data);
+                // 强制手动设置 Content-Type（避免 OkHttp 自动添加 charset=utf-8）
+                if (!headers.has("Content-Type")) {
+                    requestBuilder.header("Content-Type", "application/json");
                 }
                 
-                if (!headers.has("Content-Type")) {
-                    requestBuilder.addHeader("Content-Type", "application/json");
-                }
+                // 使用 null MediaType 创建 RequestBody，避免 OkHttp 自动添加 charset
+                String bodyString = (data instanceof JSONObject) ? data.toString() : (String) data;
+                body = RequestBody.create(null, bodyString.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
 
             requestBuilder.method(method, body);

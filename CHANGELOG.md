@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.2] - 2025-11-23
+
+### Fixed - 彻底修复 OkHttp 自动添加 charset 问题
+- **修改 OkHttp RequestBody 创建逻辑**
+  - 使用 `RequestBody.create(null, bytes)` 替代 `RequestBody.create(mediaType, string)`
+  - 手动设置 `Content-Type: application/json` header（无 charset）
+  - 避免 OkHttp 底层自动添加 `charset=utf-8` 参数
+  - 修改了两处 `makeHttpRequest()` 方法（常规请求和流式请求）
+
+### 影响
+- **彻底解决** MCP 服务器拒绝带 charset 的 Content-Type 问题
+- 不再需要代理服务器清理 charset
+- 移动端可以直接连接 MCP 服务器
+
+---
+
 ## [1.1.1] - 2025-11-23
 
 ### Fixed - 修复 MCP 服务器 Content-Type 兼容性问题
