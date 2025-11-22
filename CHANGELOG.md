@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.1] - 2025-11-23
+
+### Fixed - 修复 MCP 服务器 Content-Type 兼容性问题
+- **移除 Android 端 `Content-Type` 中的 `charset=utf-8` 参数**
+  - 修改 `CorsBypassPlugin.java` 中的 `MediaType.parse()` 调用
+  - 从 `"application/json; charset=utf-8"` 改为 `"application/json"`
+  - 解决某些 MCP 服务器（如 ModelScope）拒绝带 charset 的请求问题
+
+### 影响
+- 修复移动端 MCP 客户端初始化失败问题（HTTP 400 错误）
+- 提高与严格 JSON API 服务器的兼容性
+- 不影响现有功能，只是移除可选参数
+
+---
+
 ## [1.0.11] - 2025-11-21
 
 ### Fixed - 修复重复声明和 @objc 错误

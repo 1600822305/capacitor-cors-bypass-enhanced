@@ -169,7 +169,8 @@ public class CorsBypassPlugin extends Plugin {
             // Add body for non-GET requests
             RequestBody body = null;
             if (!method.equals("GET") && data != null) {
-                MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
+                // Use application/json without charset to avoid MCP server rejection
+                MediaType mediaType = MediaType.parse("application/json");
                 if (data instanceof JSONObject) {
                     body = RequestBody.create(mediaType, data.toString());
                 } else if (data instanceof String) {
@@ -491,7 +492,8 @@ public class CorsBypassPlugin extends Plugin {
             // Add body for non-GET requests
             RequestBody body = null;
             if (!method.equals("GET") && data != null) {
-                MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
+                // Use application/json without charset to avoid MCP server rejection
+                MediaType mediaType = MediaType.parse("application/json");
                 if (data instanceof JSONObject) {
                     body = RequestBody.create(mediaType, data.toString());
                 } else if (data instanceof String) {
