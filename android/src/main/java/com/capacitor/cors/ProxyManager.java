@@ -2,15 +2,16 @@ package com.capacitor.cors;
 
 import android.util.Log;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.JSArray;
 import okhttp3.*;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
-import java.net.PasswordAuthentication;
-import java.net.Authenticator;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import org.json.JSONArray;
+import org.json.JSONException;
 
 /**
  * Proxy Manager for handling network proxy configurations
@@ -56,14 +57,14 @@ public class ProxyManager {
         
         // Parse bypass list
         try {
-            com.getcapacitor.JSArray bypassArray = config.getJSArray("bypass");
+            JSONArray bypassArray = config.getJSONArray("bypass");
             if (bypassArray != null) {
                 this.bypass = new String[bypassArray.length()];
                 for (int i = 0; i < bypassArray.length(); i++) {
                     this.bypass[i] = bypassArray.getString(i);
                 }
             }
-        } catch (Exception e) {
+        } catch (JSONException e) {
             this.bypass = new String[0];
         }
         
@@ -214,24 +215,21 @@ public class ProxyManager {
     /**
      * Create proxy authenticator for OkHttp
      */
-    public Authenticator createAuthenticator() {
+    public okhttp3.Authenticator createAuthenticator() {
         if (!isEnabled() || username == null || username.isEmpty()) {
             return null;
         }
         
-        return new Authenticator() {
-            @Override
-            public Request authenticate(Route route, Response response) throws IOException {
-                if (response.request().header("Proxy-Authorization") != null) {
-                    // Already attempted authentication
-                    return null;
-                }
-                
-                String credential = Credentials.basic(username, password != null ? password : "");
-                return response.request().newBuilder()
-                    .header("Proxy-Authorization", credential)
-                    .build();
+        return (route, response) -> {
+            if (response.request().header("Proxy-Authorization") != null) {
+                // Already attempted authentication
+                return null;
             }
+            
+            String credential = Credentials.basic(username, password != null ? password : "");
+            return response.request().newBuilder()
+                .header("Proxy-Authorization", credential)
+                .build();
         };
     }
     
@@ -245,7 +243,7 @@ public class ProxyManager {
         
         builder.proxy(createProxy());
         
-        Authenticator authenticator = createAuthenticator();
+        okhttp3.Authenticator authenticator = createAuthenticator();
         if (authenticator != null) {
             builder.proxyAuthenticator(authenticator);
         }
