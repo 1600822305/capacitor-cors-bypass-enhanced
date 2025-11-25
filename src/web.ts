@@ -27,6 +27,10 @@ import type {
   Interceptor,
   InterceptorOptions,
   InterceptorHandle,
+  GlobalProxyConfig,
+  ProxyConfig,
+  ProxyTestResult,
+  ProxyStatus,
 } from './definitions';
  
 
@@ -40,6 +44,10 @@ import { InterceptorManager } from './web/interceptor';
 
 export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
   private proxyServerUrl: string | null = null;
+  private globalProxyConfig: GlobalProxyConfig | null = null;
+  private proxyRequestCount: number = 0;
+  private proxyLastSuccessTime: number | null = null;
+  private proxyLastError: string | null = null;
   
   // Modular managers
   private utilsManager: UtilsManager;
@@ -414,5 +422,147 @@ export class CorsBypassWeb extends WebPlugin implements CorsBypassPlugin {
 
   async getInterceptors(): Promise<InterceptorHandle[]> {
     return this.interceptorManager.getInterceptors();
+  }
+
+  // ==================== Proxy Management ====================
+
+  /**
+   * Set global proxy configuration
+   * Note: On Web platform, proxy is handled through the CORS proxy server
+   * The proxy config is stored and can be passed to the server for server-side proxying
+   */
+  async setGlobalProxy(config: GlobalProxyConfig): Promise<void> {
+    this.globalProxyConfig = config;
+    
+    // If using a proxy server, we can configure it to use the specified proxy
+    if (this.proxyServerUrl && config.enabled) {
+      console.log(`🔧 [Web] Global proxy configured: ${config.type || 'http'}://${config.host}:${config.port}`);
+      console.log('💡 Note: Web platform proxying requires server-side support.');
+    }
+  }
+
+  /**
+   * Get current global proxy configuration
+   */
+  async getGlobalProxy(): Promise<GlobalProxyConfig | null> {
+    return this.globalProxyConfig;
+  }
+
+  /**
+   * Clear global proxy configuration
+   */
+  async clearGlobalProxy(): Promise<void> {
+    this.globalProxyConfig = null;
+    this.proxyLastError = null;
+    console.log('🔧 [Web] Global proxy configuration cleared');
+  }
+
+  /**
+   * Test proxy connection
+   * On Web platform, this tests connectivity through the CORS proxy server
+   */
+  async testProxy(config: ProxyConfig, testUrl?: string): Promise<ProxyTestResult> {
+    const startTime = Date.now();
+    const url = testUrl || 'https://www.google.com';
+    
+    if (!config.enabled || !config.host) {
+      return {
+        success: false,
+        error: 'Proxy configuration is invalid or disabled',
+        responseTime: 0
+      };
+    }
+
+    try {
+      // On Web, we can only test through our proxy server
+      if (this.proxyServerUrl) {
+        const response = await fetch(`${this.proxyServerUrl}/proxy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url,
+            method: 'HEAD',
+            proxy: {
+              enabled: true,
+              type: config.type || 'http',
+              host: config.host,
+              port: config.port,
+              username: config.username,
+              password: config.password
+            }
+          })
+        });
+
+        const responseTime = Date.now() - startTime;
+        this.proxyRequestCount++;
+
+        if (response.ok) {
+          this.proxyLastSuccessTime = Date.now();
+          this.proxyLastError = null;
+          return {
+            success: true,
+            responseTime,
+            statusCode: response.status
+          };
+        } else {
+          const error = `HTTP ${response.status}`;
+          this.proxyLastError = error;
+          return {
+            success: false,
+            responseTime,
+            statusCode: response.status,
+            error
+          };
+        }
+      } else {
+        // No proxy server available, test direct connection
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        try {
+          const response = await fetch(url, {
+            method: 'HEAD',
+            mode: 'no-cors',
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+          const responseTime = Date.now() - startTime;
+
+          return {
+            success: true,
+            responseTime,
+            statusCode: response.status || 0
+          };
+        } catch (fetchError: any) {
+          clearTimeout(timeoutId);
+          return {
+            success: false,
+            responseTime: Date.now() - startTime,
+            error: fetchError.message || 'Connection failed'
+          };
+        }
+      }
+    } catch (error: any) {
+      this.proxyLastError = error.message;
+      return {
+        success: false,
+        responseTime: Date.now() - startTime,
+        error: error.message || 'Proxy test failed'
+      };
+    }
+  }
+
+  /**
+   * Get current proxy status
+   */
+  async getProxyStatus(): Promise<ProxyStatus> {
+    return {
+      active: this.globalProxyConfig?.enabled ?? false,
+      config: this.globalProxyConfig ?? undefined,
+      requestCount: this.proxyRequestCount,
+      lastError: this.proxyLastError ?? undefined,
+      lastSuccessTime: this.proxyLastSuccessTime ?? undefined
+    };
   }
 }

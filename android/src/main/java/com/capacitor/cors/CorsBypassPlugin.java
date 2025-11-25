@@ -32,6 +32,7 @@ public class CorsBypassPlugin extends Plugin {
     private PluginInterceptor pluginInterceptor;
     private CacheManager cacheManager;
     private CacheInterceptor cacheInterceptor;
+    private ProxyManager proxyManager;
 
     @Override
     public void load() {
@@ -54,6 +55,9 @@ public class CorsBypassPlugin extends Plugin {
             5 * 60 * 1000, // 5 minutes
             false // Disabled by default, enable via plugin method
         );
+
+        // Initialize proxy manager
+        proxyManager = new ProxyManager();
 
         // Initialize HTTP client with HTTP/2 support
         httpClient = new OkHttpClient.Builder()
@@ -145,6 +149,7 @@ public class CorsBypassPlugin extends Plugin {
         double timeout = call.getDouble("timeout", 30.0);
         String responseType = call.getString("responseType", "json");
         boolean withCredentials = call.getBoolean("withCredentials", false);
+        JSObject proxyConfig = call.getObject("proxy", null);
 
         try {
             // Build URL with parameters
@@ -182,12 +187,16 @@ public class CorsBypassPlugin extends Plugin {
             requestBuilder.method(method, body);
             Request request = requestBuilder.build();
 
-            // Configure client with timeout
-            OkHttpClient client = httpClient.newBuilder()
+            // Configure client with timeout and proxy
+            OkHttpClient.Builder clientBuilder = httpClient.newBuilder()
                 .connectTimeout((long) timeout, TimeUnit.SECONDS)
                 .readTimeout((long) timeout, TimeUnit.SECONDS)
-                .writeTimeout((long) timeout, TimeUnit.SECONDS)
-                .build();
+                .writeTimeout((long) timeout, TimeUnit.SECONDS);
+            
+            // Apply proxy configuration
+            proxyManager.applyToClientBuilder(clientBuilder, url, proxyConfig);
+            
+            OkHttpClient client = clientBuilder.build();
 
             // Execute request
             Log.d(TAG, "Making request to: " + requestUrl.toString());
@@ -422,7 +431,7 @@ public class CorsBypassPlugin extends Plugin {
     }
 
     private void rebuildHttpClient() {
-        httpClient = new OkHttpClient.Builder()
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
@@ -444,8 +453,14 @@ public class CorsBypassPlugin extends Plugin {
                 public void log(String message) {
                     Log.d(TAG, "HTTP: " + message);
                 }
-            }).setLevel(okhttp3.logging.HttpLoggingInterceptor.Level.BASIC))
-            .build();
+            }).setLevel(okhttp3.logging.HttpLoggingInterceptor.Level.BASIC));
+        
+        // Apply global proxy if configured
+        if (proxyManager != null) {
+            proxyManager.applyToClientBuilder(builder);
+        }
+        
+        httpClient = builder.build();
     }
 
     @PluginMethod
@@ -939,5 +954,91 @@ public class CorsBypassPlugin extends Plugin {
         result.put("lastSequence", transport.getLastSequence());
         result.put("resumable", transport.isResumable());
         call.resolve(result);
+    }
+
+    // ==================== Proxy Management Methods ====================
+
+    @PluginMethod
+    public void setGlobalProxy(PluginCall call) {
+        try {
+            JSObject config = call.getObject("config", call.getData());
+            if (config == null) {
+                call.reject("Proxy configuration is required");
+                return;
+            }
+            
+            proxyManager.setConfig(config);
+            
+            // Rebuild HTTP client with new proxy settings
+            rebuildHttpClient();
+            
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Failed to set proxy: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getGlobalProxy(PluginCall call) {
+        try {
+            JSObject config = proxyManager.getConfig();
+            if (config != null) {
+                call.resolve(config);
+            } else {
+                // Return empty result when no proxy is configured
+                call.resolve(new JSObject());
+            }
+        } catch (Exception e) {
+            call.reject("Failed to get proxy: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void clearGlobalProxy(PluginCall call) {
+        try {
+            proxyManager.clearConfig();
+            
+            // Rebuild HTTP client without proxy
+            rebuildHttpClient();
+            
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Failed to clear proxy: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void testProxy(PluginCall call) {
+        try {
+            JSObject config = call.getObject("config", call.getData());
+            if (config == null) {
+                call.reject("Proxy configuration is required");
+                return;
+            }
+            
+            String testUrl = call.getString("testUrl", "https://www.google.com");
+            
+            // Run test in background thread
+            new Thread(() -> {
+                JSObject result = proxyManager.testProxy(config, testUrl);
+                
+                getActivity().runOnUiThread(() -> {
+                    call.resolve(result);
+                });
+            }).start();
+            
+        } catch (Exception e) {
+            call.reject("Failed to test proxy: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getProxyStatus(PluginCall call) {
+        try {
+            JSObject status = proxyManager.getStatus();
+            call.resolve(status);
+        } catch (Exception e) {
+            call.reject("Failed to get proxy status: " + e.getMessage());
+        }
     }
 }

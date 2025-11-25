@@ -8,6 +8,7 @@ A comprehensive Capacitor plugin that provides powerful networking capabilities 
 
 ### 🌐 Core Networking
 - **CORS Bypass** - Complete bypass of browser CORS restrictions
+- **Network Proxy** ✅ NEW - HTTP, HTTPS, SOCKS4, SOCKS5 proxy support with authentication
 - **HTTP/2 Support** ✅ - Multiplexing, server push, stream prioritization (Android & iOS)
 - **HTTP/3 (QUIC)** ⏭️ - Planned (requires OkHttp 5.0 stable or Cronet integration)
 - **Protocol Auto-Detection** ✅ - Automatic protocol negotiation and fallback
@@ -105,6 +106,54 @@ if (response.metrics) {
   console.log('TTFB:', response.metrics.ttfb, 'ms');
   console.log('Download Speed:', response.metrics.downloadSpeed, 'bytes/sec');
 }
+```
+
+### Network Proxy Support ✨NEW
+
+```typescript
+import { CorsBypass } from 'capacitor-cors-bypass-enhanced';
+
+// Set global proxy (applies to all requests)
+await CorsBypass.setGlobalProxy({
+  enabled: true,
+  type: 'http',  // 'http' | 'https' | 'socks4' | 'socks5'
+  host: '127.0.0.1',
+  port: 8080,
+  username: 'user',      // Optional
+  password: 'pass',      // Optional
+  bypass: ['localhost', '*.local'],  // Optional bypass list
+  applyToAll: true
+});
+
+// Test proxy connection
+const testResult = await CorsBypass.testProxy({
+  enabled: true,
+  type: 'socks5',
+  host: '127.0.0.1',
+  port: 1080
+}, 'https://www.google.com');
+
+console.log('Proxy test:', testResult.success ? 'OK' : testResult.error);
+console.log('Response time:', testResult.responseTime, 'ms');
+
+// Per-request proxy (overrides global proxy)
+const response = await CorsBypass.get({
+  url: 'https://api.example.com/data',
+  proxy: {
+    enabled: true,
+    type: 'http',
+    host: 'proxy.company.com',
+    port: 3128
+  }
+});
+
+// Get proxy status
+const status = await CorsBypass.getProxyStatus();
+console.log('Active:', status.active);
+console.log('Request count:', status.requestCount);
+
+// Clear global proxy
+await CorsBypass.clearGlobalProxy();
 ```
 
 ### gRPC Service Calls

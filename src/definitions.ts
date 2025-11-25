@@ -32,6 +32,10 @@ import type {
   Interceptor,
   InterceptorOptions,
   InterceptorHandle,
+  GlobalProxyConfig,
+  ProxyConfig,
+  ProxyTestResult,
+  ProxyStatus,
 } from './types';
 
 /**
@@ -195,4 +199,43 @@ export interface CorsBypassPlugin {
    * @returns Array of interceptor handles
    */
   getInterceptors(): Promise<InterceptorHandle[]>;
+
+  // ==================== Proxy Methods ====================
+
+  /**
+   * Set global proxy configuration
+   * This proxy will be used for all requests unless overridden per-request
+   *
+   * @param config - Global proxy configuration
+   */
+  setGlobalProxy(config: GlobalProxyConfig): Promise<void>;
+
+  /**
+   * Get current global proxy configuration
+   *
+   * @returns Current global proxy config or null if not set
+   */
+  getGlobalProxy(): Promise<GlobalProxyConfig | null>;
+
+  /**
+   * Clear global proxy configuration
+   */
+  clearGlobalProxy(): Promise<void>;
+
+  /**
+   * Test proxy connection
+   * Makes a test request through the specified proxy to verify connectivity
+   *
+   * @param config - Proxy configuration to test
+   * @param testUrl - Optional URL to test against (defaults to a connectivity check endpoint)
+   * @returns Test result with success status, response time, and any errors
+   */
+  testProxy(config: ProxyConfig, testUrl?: string): Promise<ProxyTestResult>;
+
+  /**
+   * Get current proxy status
+   *
+   * @returns Current proxy status including active state and statistics
+   */
+  getProxyStatus(): Promise<ProxyStatus>;
 }

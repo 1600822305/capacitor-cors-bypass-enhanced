@@ -25,3 +25,6 @@ export * from './interceptor';
 
 // Cache types
 export * from './cache';
+
+// Proxy types
+export * from './proxy';

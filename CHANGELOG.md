@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.2.0] - 2025-11-25
+
+### Added - 网络代理功能 ✨NEW
+
+- **完整的网络代理支持**
+  - 支持 HTTP、HTTPS、SOCKS4、SOCKS5 代理类型
+  - 支持代理认证（用户名/密码）
+  - 支持 bypass 列表（跳过指定域名的代理）
+  - 支持全局代理和每请求代理配置
+
+- **新增 TypeScript 类型定义**
+  - `ProxyConfig` - 代理配置接口
+  - `GlobalProxyConfig` - 全局代理配置
+  - `ProxyTestResult` - 代理测试结果
+  - `ProxyStatus` - 代理状态信息
+
+- **新增 API 方法**
+  - `setGlobalProxy(config)` - 设置全局代理
+  - `getGlobalProxy()` - 获取当前全局代理配置
+  - `clearGlobalProxy()` - 清除全局代理
+  - `testProxy(config, testUrl?)` - 测试代理连接
+  - `getProxyStatus()` - 获取代理状态
+
+- **HttpRequestOptions 新增 proxy 字段**
+  - 支持每请求独立的代理配置
+  - 覆盖全局代理设置
+
+### 平台支持
+- **Android** ✅ - 使用 OkHttp Proxy 实现
+- **iOS** ✅ - 使用 URLSessionConfiguration 代理配置
+- **Web** ⚠️ - 通过 CORS 代理服务器支持（浏览器限制）
+
+### 使用示例
+```typescript
+// 全局代理
+await CorsBypass.setGlobalProxy({
+  enabled: true,
+  type: 'socks5',
+  host: '127.0.0.1',
+  port: 1080
+});
+
+// 每请求代理
+const response = await CorsBypass.get({
+  url: 'https://api.example.com',
+  proxy: { enabled: true, type: 'http', host: 'proxy.com', port: 8080 }
+});
+```
+
+---
+
 ## [1.1.2] - 2025-11-23
 
 ### Fixed - 彻底修复 OkHttp 自动添加 charset 问题

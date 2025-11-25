@@ -25,4 +25,9 @@ CAP_PLUGIN(CorsBypassPlugin, "CorsBypass",
            CAP_PLUGIN_METHOD(cleanupCache, CAPPluginReturnPromise);
            CAP_PLUGIN_METHOD(getCacheKeys, CAPPluginReturnPromise);
            CAP_PLUGIN_METHOD(deleteCacheEntry, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(setGlobalProxy, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(getGlobalProxy, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(clearGlobalProxy, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(testProxy, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(getProxyStatus, CAPPluginReturnPromise);
 )

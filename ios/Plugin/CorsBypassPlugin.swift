@@ -14,6 +14,7 @@ public class CorsBypassPlugin: CAPPlugin {
     private var pluginInterceptor: PluginInterceptor?
     private var cacheManager: CacheManager?
     private var cacheInterceptor: CacheInterceptor?
+    private var proxyManager: ProxyManager = ProxyManager()
     
     public override func load() {
         super.load()
@@ -101,6 +102,7 @@ public class CorsBypassPlugin: CAPPlugin {
         let timeout = call.getDouble("timeout") ?? 30.0
         let responseType = call.getString("responseType") ?? "json"
         let withCredentials = call.getBool("withCredentials") ?? false
+        let proxyConfig = call.getObject("proxy")
         
         makeHttpRequest(
             url: url,
@@ -111,6 +113,7 @@ public class CorsBypassPlugin: CAPPlugin {
             timeout: timeout,
             responseType: responseType,
             withCredentials: withCredentials,
+            proxyConfig: proxyConfig,
             call: call
         )
     }
@@ -124,6 +127,7 @@ public class CorsBypassPlugin: CAPPlugin {
         timeout: Double,
         responseType: String,
         withCredentials: Bool,
+        proxyConfig: JSObject? = nil,
         call: CAPPluginCall
     ) {
         var urlString = url
@@ -190,6 +194,9 @@ public class CorsBypassPlugin: CAPPlugin {
         
         // TLS configuration for modern protocols
         config.tlsMinimumSupportedProtocolVersion = .TLSv12
+        
+        // Apply proxy configuration
+        proxyManager.applyToSessionConfig(config, url: url, requestProxy: proxyConfig)
         
         let session = URLSession(configuration: config)
         
@@ -743,5 +750,46 @@ extension CorsBypassPlugin: URLSessionDataDelegate {
                 "status": "completed"
             ])
         }
+    }
+    
+    // MARK: - Proxy Management Methods
+    
+    @objc func setGlobalProxy(_ call: CAPPluginCall) {
+        let config = call.getObject("config") ?? call.jsObjectRepresentation
+        proxyManager.setConfig(config)
+        call.resolve()
+    }
+    
+    @objc func getGlobalProxy(_ call: CAPPluginCall) {
+        if let config = proxyManager.getConfig() {
+            call.resolve(config)
+        } else {
+            call.resolve([:])
+        }
+    }
+    
+    @objc func clearGlobalProxy(_ call: CAPPluginCall) {
+        proxyManager.clearConfig()
+        call.resolve()
+    }
+    
+    @objc func testProxy(_ call: CAPPluginCall) {
+        guard let config = call.getObject("config") ?? call.jsObjectRepresentation as JSObject? else {
+            call.reject("Proxy configuration is required")
+            return
+        }
+        
+        let testUrl = call.getString("testUrl")
+        
+        proxyManager.testProxy(config, testUrl: testUrl) { result in
+            DispatchQueue.main.async {
+                call.resolve(result)
+            }
+        }
+    }
+    
+    @objc func getProxyStatus(_ call: CAPPluginCall) {
+        let status = proxyManager.getStatus()
+        call.resolve(status)
     }
 }

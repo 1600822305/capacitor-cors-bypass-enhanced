@@ -2,6 +2,8 @@
  * HTTP Request and Response Types
  */
 
+import type { ProxyConfig } from './proxy';
+
 export interface HttpRequestOptions {
   /**
    * The URL to request
@@ -63,6 +65,12 @@ export interface HttpRequestOptions {
    * Protocol configuration for HTTP/2 and HTTP/3 support
    */
   protocolConfig?: ProtocolConfig;
+
+  /**
+   * Proxy configuration for the request
+   * Supports HTTP, HTTPS, SOCKS4, and SOCKS5 proxies
+   */
+  proxy?: ProxyConfig;
 }
 
 /**
