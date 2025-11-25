@@ -184,14 +184,19 @@ public class ProxyManager {
             }
             
         case "https":
-            proxyDict[kCFNetworkProxiesHTTPSEnable as String] = true
-            proxyDict[kCFNetworkProxiesHTTPSProxy as String] = host
-            proxyDict[kCFNetworkProxiesHTTPSPort as String] = port
+            // Use string keys for HTTPS proxy (iOS compatible)
+            proxyDict["HTTPSEnable"] = 1
+            proxyDict["HTTPSProxy"] = host
+            proxyDict["HTTPSPort"] = port
+            // Also set HTTP proxy for CONNECT tunneling
+            proxyDict[kCFNetworkProxiesHTTPEnable as String] = 1
+            proxyDict[kCFNetworkProxiesHTTPProxy as String] = host
+            proxyDict[kCFNetworkProxiesHTTPPort as String] = port
             
         case "http":
             fallthrough
         default:
-            proxyDict[kCFNetworkProxiesHTTPEnable as String] = true
+            proxyDict[kCFNetworkProxiesHTTPEnable as String] = 1
             proxyDict[kCFNetworkProxiesHTTPProxy as String] = host
             proxyDict[kCFNetworkProxiesHTTPPort as String] = port
         }
@@ -246,12 +251,17 @@ public class ProxyManager {
             }
             
         case "https":
-            proxyDict[kCFNetworkProxiesHTTPSEnable as String] = true
-            proxyDict[kCFNetworkProxiesHTTPSProxy as String] = proxyHost
-            proxyDict[kCFNetworkProxiesHTTPSPort as String] = proxyPort
+            // Use string keys for HTTPS proxy (iOS compatible)
+            proxyDict["HTTPSEnable"] = 1
+            proxyDict["HTTPSProxy"] = proxyHost
+            proxyDict["HTTPSPort"] = proxyPort
+            // Also set HTTP proxy for CONNECT tunneling
+            proxyDict[kCFNetworkProxiesHTTPEnable as String] = 1
+            proxyDict[kCFNetworkProxiesHTTPProxy as String] = proxyHost
+            proxyDict[kCFNetworkProxiesHTTPPort as String] = proxyPort
             
         default:
-            proxyDict[kCFNetworkProxiesHTTPEnable as String] = true
+            proxyDict[kCFNetworkProxiesHTTPEnable as String] = 1
             proxyDict[kCFNetworkProxiesHTTPProxy as String] = proxyHost
             proxyDict[kCFNetworkProxiesHTTPPort as String] = proxyPort
         }
@@ -308,12 +318,17 @@ public class ProxyManager {
             }
             
         case "https":
-            proxyDict[kCFNetworkProxiesHTTPSEnable as String] = true
-            proxyDict[kCFNetworkProxiesHTTPSProxy as String] = proxyHost
-            proxyDict[kCFNetworkProxiesHTTPSPort as String] = proxyPort
+            // Use string keys for HTTPS proxy (iOS compatible)
+            proxyDict["HTTPSEnable"] = 1
+            proxyDict["HTTPSProxy"] = proxyHost
+            proxyDict["HTTPSPort"] = proxyPort
+            // Also set HTTP proxy for CONNECT tunneling
+            proxyDict[kCFNetworkProxiesHTTPEnable as String] = 1
+            proxyDict[kCFNetworkProxiesHTTPProxy as String] = proxyHost
+            proxyDict[kCFNetworkProxiesHTTPPort as String] = proxyPort
             
         default:
-            proxyDict[kCFNetworkProxiesHTTPEnable as String] = true
+            proxyDict[kCFNetworkProxiesHTTPEnable as String] = 1
             proxyDict[kCFNetworkProxiesHTTPProxy as String] = proxyHost
             proxyDict[kCFNetworkProxiesHTTPPort as String] = proxyPort
         }
