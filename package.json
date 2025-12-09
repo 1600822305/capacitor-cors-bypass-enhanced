@@ -1,6 +1,6 @@
 {
   "name": "capacitor-cors-bypass-enhanced",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "description": "Enhanced Capacitor plugin for CORS bypass with HTTP/2, HTTP/3, gRPC, GraphQL, file operations, and advanced networking features. Modular TypeScript definitions for better maintainability.",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
@@ -71,9 +71,9 @@
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
-    "@capacitor/android": "^7.2.0",
-    "@capacitor/core": "^7.2.0",
-    "@capacitor/ios": "^7.2.0",
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
     "@ionic/eslint-config": "^0.3.0",
     "@ionic/prettier-config": "^1.0.1",
     "@ionic/swiftlint-config": "^1.1.2",
@@ -87,7 +87,7 @@
     "typescript": "~4.9.0"
   },
   "peerDependencies": {
-    "@capacitor/core": "^7.2.0"
+    "@capacitor/core": "^8.0.0"
   },
   "prettier": "@ionic/prettier-config",
   "swiftlint": "@ionic/swiftlint-config",

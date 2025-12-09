@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.3.0] - 2025-12-10
+
+### Changed - Capacitor 8.0.0 支持 🚀
+
+- **升级 Capacitor 依赖到 8.0.0**
+  - `@capacitor/core` ^8.0.0
+  - `@capacitor/android` ^8.0.0
+  - `@capacitor/ios` ^8.0.0
+
+- **平台要求更新**
+  - Android: minSdkVersion 24 (Android 7.0+)
+  - iOS: 部署目标 15.0+
+
+### 兼容性
+- 完全兼容 Capacitor 8.0.0
+- 向后兼容 Capacitor 7.x 项目（需使用 1.2.x 版本）
+
+---
+
 ## [1.2.0] - 2025-11-25
 
 ### Added - 网络代理功能 ✨NEW
