@@ -1,8 +1,8 @@
 import { WebPlugin } from '@capacitor/core';
 
-// MCP SDK imports with type assertions
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js') as any;
-const { SSEClientTransport } = require('@modelcontextprotocol/sdk/client/sse.js') as any;
+// MCP SDK imports (ESM)
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
 import type {
   CorsBypassPlugin,
