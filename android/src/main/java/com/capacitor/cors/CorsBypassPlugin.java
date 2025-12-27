@@ -223,34 +223,36 @@ public class CorsBypassPlugin extends Plugin {
                         // Parse response body
                         Object responseData = "";
                         if (response.body() != null) {
-                            String bodyString = response.body().string();
-                            Log.d(TAG, "Response body length: " + bodyString.length());
+                            // 对于二进制响应类型，直接读取原始字节，避免 UTF-8 编码损坏数据
+                            if ("blob".equals(responseType) || "arraybuffer".equals(responseType)) {
+                                byte[] bodyBytes = response.body().bytes();
+                                Log.d(TAG, "Response body length (binary): " + bodyBytes.length);
+                                // 直接将原始字节进行 Base64 编码
+                                responseData = android.util.Base64.encodeToString(bodyBytes, android.util.Base64.NO_WRAP);
+                            } else {
+                                String bodyString = response.body().string();
+                                Log.d(TAG, "Response body length: " + bodyString.length());
 
-                            switch (responseType) {
-                                case "text":
-                                    responseData = bodyString;
-                                    break;
-                                case "json":
-                                    try {
-                                        responseData = new JSONObject(bodyString);
-                                    } catch (JSONException e) {
-                                        Log.w(TAG, "Failed to parse JSON, returning as text", e);
+                                switch (responseType) {
+                                    case "text":
                                         responseData = bodyString;
-                                    }
-                                    break;
-                                case "blob":
-                                case "arraybuffer":
-                                    // Convert to base64 for transfer
-                                    responseData = android.util.Base64.encodeToString(
-                                        bodyString.getBytes(), android.util.Base64.DEFAULT);
-                                    break;
-                                default:
-                                    try {
-                                        responseData = new JSONObject(bodyString);
-                                    } catch (JSONException e) {
-                                        responseData = bodyString;
-                                    }
-                                    break;
+                                        break;
+                                    case "json":
+                                        try {
+                                            responseData = new JSONObject(bodyString);
+                                        } catch (JSONException e) {
+                                            Log.w(TAG, "Failed to parse JSON, returning as text", e);
+                                            responseData = bodyString;
+                                        }
+                                        break;
+                                    default:
+                                        try {
+                                            responseData = new JSONObject(bodyString);
+                                        } catch (JSONException e) {
+                                            responseData = bodyString;
+                                        }
+                                        break;
+                                }
                             }
                         }
 
