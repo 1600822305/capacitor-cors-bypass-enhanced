@@ -20,6 +20,9 @@ import org.json.JSONException;
 public class ProxyManager {
     private static final String TAG = "ProxyManager";
     
+    // Track the current SOCKS authenticator so we can clean up
+    private static java.net.Authenticator previousAuthenticator = null;
+    
     // Proxy configuration
     private boolean enabled = false;
     private String type = "http";
@@ -68,6 +71,13 @@ public class ProxyManager {
             this.bypass = new String[0];
         }
         
+        // Set up SOCKS authenticator immediately if needed
+        if (enabled && isSocksType(type) && username != null && !username.isEmpty()) {
+            setSocksAuthenticator(host, port, username, password);
+        } else {
+            clearSocksAuthenticator();
+        }
+        
         Log.i(TAG, "Proxy configured: " + type + "://" + host + ":" + port + " (enabled: " + enabled + ")");
     }
     
@@ -84,6 +94,7 @@ public class ProxyManager {
         this.bypass = new String[0];
         this.applyToAll = true;
         this.lastError = null;
+        clearSocksAuthenticator();
         
         Log.i(TAG, "Proxy configuration cleared");
     }
@@ -213,10 +224,58 @@ public class ProxyManager {
     }
     
     /**
-     * Create proxy authenticator for OkHttp
+     * Check if a proxy type string represents a SOCKS proxy
+     */
+    private static boolean isSocksType(String proxyType) {
+        if (proxyType == null) return false;
+        switch (proxyType.toLowerCase()) {
+            case "socks4":
+            case "socks5":
+            case "socks":
+                return true;
+            default:
+                return false;
+        }
+    }
+    
+    /**
+     * Set java.net.Authenticator for SOCKS proxy authentication.
+     * SOCKS proxies authenticate at the TCP/protocol level, not via HTTP headers,
+     * so OkHttp's proxyAuthenticator does NOT work for SOCKS.
+     */
+    private static synchronized void setSocksAuthenticator(String proxyHost, int proxyPort, String user, String pass) {
+        java.net.Authenticator.setDefault(new java.net.Authenticator() {
+            @Override
+            protected java.net.PasswordAuthentication getPasswordAuthentication() {
+                if (getRequestingHost() != null 
+                    && getRequestingHost().equalsIgnoreCase(proxyHost)
+                    && getRequestingPort() == proxyPort) {
+                    return new java.net.PasswordAuthentication(
+                        user, (pass != null ? pass : "").toCharArray());
+                }
+                return null;
+            }
+        });
+        Log.d(TAG, "SOCKS authenticator set for " + proxyHost + ":" + proxyPort);
+    }
+    
+    /**
+     * Clear the SOCKS authenticator
+     */
+    private static synchronized void clearSocksAuthenticator() {
+        java.net.Authenticator.setDefault(null);
+    }
+    
+    /**
+     * Create proxy authenticator for OkHttp (HTTP/HTTPS proxies only)
      */
     public okhttp3.Authenticator createAuthenticator() {
         if (!isEnabled() || username == null || username.isEmpty()) {
+            return null;
+        }
+        
+        // SOCKS proxies use java.net.Authenticator, not OkHttp authenticator
+        if (isSocksType(type)) {
             return null;
         }
         
@@ -243,9 +302,17 @@ public class ProxyManager {
         
         builder.proxy(createProxy());
         
-        okhttp3.Authenticator authenticator = createAuthenticator();
-        if (authenticator != null) {
-            builder.proxyAuthenticator(authenticator);
+        if (username != null && !username.isEmpty()) {
+            if (isSocksType(type)) {
+                // SOCKS auth at protocol level
+                setSocksAuthenticator(host, port, username, password);
+            } else {
+                // HTTP auth via OkHttp authenticator
+                okhttp3.Authenticator authenticator = createAuthenticator();
+                if (authenticator != null) {
+                    builder.proxyAuthenticator(authenticator);
+                }
+            }
         }
         
         Log.d(TAG, "Proxy applied to HTTP client: " + type + "://" + host + ":" + port);
@@ -305,15 +372,21 @@ public class ProxyManager {
         builder.proxy(new Proxy(type, new InetSocketAddress(proxyHost, proxyPort)));
         
         if (proxyUser != null && !proxyUser.isEmpty()) {
-            builder.proxyAuthenticator((route, response) -> {
-                if (response.request().header("Proxy-Authorization") != null) {
-                    return null;
-                }
-                String credential = Credentials.basic(proxyUser, proxyPass != null ? proxyPass : "");
-                return response.request().newBuilder()
-                    .header("Proxy-Authorization", credential)
-                    .build();
-            });
+            if (isSocksType(proxyType)) {
+                // SOCKS auth at protocol level
+                setSocksAuthenticator(proxyHost, proxyPort, proxyUser, proxyPass);
+            } else {
+                // HTTP auth via OkHttp authenticator
+                builder.proxyAuthenticator((route, response) -> {
+                    if (response.request().header("Proxy-Authorization") != null) {
+                        return null;
+                    }
+                    String credential = Credentials.basic(proxyUser, proxyPass != null ? proxyPass : "");
+                    return response.request().newBuilder()
+                        .header("Proxy-Authorization", credential)
+                        .build();
+                });
+            }
         }
         
         Log.d(TAG, "Per-request proxy applied: " + proxyType + "://" + proxyHost + ":" + proxyPort);
@@ -366,17 +439,23 @@ public class ProxyManager {
                 .readTimeout(10, TimeUnit.SECONDS);
             
             if (proxyUser != null && !proxyUser.isEmpty()) {
-                final String user = proxyUser;
-                final String pass = proxyPass;
-                builder.proxyAuthenticator((route, response) -> {
-                    if (response.request().header("Proxy-Authorization") != null) {
-                        return null;
-                    }
-                    String credential = Credentials.basic(user, pass != null ? pass : "");
-                    return response.request().newBuilder()
-                        .header("Proxy-Authorization", credential)
-                        .build();
-                });
+                if (isSocksType(proxyType)) {
+                    // SOCKS auth at protocol level
+                    setSocksAuthenticator(proxyHost, proxyPort, proxyUser, proxyPass);
+                } else {
+                    // HTTP auth via OkHttp authenticator
+                    final String user = proxyUser;
+                    final String pass = proxyPass;
+                    builder.proxyAuthenticator((route, response) -> {
+                        if (response.request().header("Proxy-Authorization") != null) {
+                            return null;
+                        }
+                        String credential = Credentials.basic(user, pass != null ? pass : "");
+                        return response.request().newBuilder()
+                            .header("Proxy-Authorization", credential)
+                            .build();
+                    });
+                }
             }
             
             OkHttpClient client = builder.build();
@@ -405,6 +484,17 @@ public class ProxyManager {
             result.put("error", e.getMessage());
             
             Log.e(TAG, "Proxy test failed: " + e.getMessage());
+        } finally {
+            // Clean up SOCKS authenticator after test if it was a SOCKS proxy
+            String proxyType = proxyConfig.getString("type", "http");
+            if (isSocksType(proxyType)) {
+                // Restore global SOCKS auth if global proxy is enabled and is SOCKS
+                if (isEnabled() && isSocksType(type) && username != null && !username.isEmpty()) {
+                    setSocksAuthenticator(host, port, username, password);
+                } else {
+                    clearSocksAuthenticator();
+                }
+            }
         }
         
         return result;
