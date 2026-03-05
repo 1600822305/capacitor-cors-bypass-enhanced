@@ -574,13 +574,17 @@ public class CorsBypassPlugin extends Plugin {
                         }
 
                         // Read stream in chunks
+                        // 使用 InputStreamReader 而非手动 new String(bytes, "UTF-8")
+                        // 因为 InputStreamReader 内部的 CharsetDecoder 会正确处理
+                        // UTF-8 多字节字符跨 chunk 边界的情况，避免中文乱码
                         if (response.body() != null) {
                             InputStream inputStream = response.body().byteStream();
-                            byte[] buffer = new byte[8192];
-                            int bytesRead;
+                            java.io.InputStreamReader streamReader = new java.io.InputStreamReader(inputStream, "UTF-8");
+                            char[] buffer = new char[8192];
+                            int charsRead;
 
-                            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                                String chunk = new String(buffer, 0, bytesRead, "UTF-8");
+                            while ((charsRead = streamReader.read(buffer)) != -1) {
+                                String chunk = new String(buffer, 0, charsRead);
                                 
                                 JSObject chunkData = new JSObject();
                                 chunkData.put("streamId", streamId);

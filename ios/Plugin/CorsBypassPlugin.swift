@@ -640,10 +640,58 @@ private class StreamContext {
     let streamId: String
     weak var plugin: CorsBypassPlugin?
     var receivedData = Data()
+    /// 缓存跨 chunk 的不完整 UTF-8 字节，避免多字节字符被截断产生乱码
+    var pendingData = Data()
     
     init(streamId: String, plugin: CorsBypassPlugin) {
         self.streamId = streamId
         self.plugin = plugin
+    }
+    
+    /// 将新到达的 data 与之前的 pending 字节合并，
+    /// 返回可安全转为 String 的部分，并把末尾不完整的 UTF-8 字节留在 pendingData 中
+    func decodeChunk(_ newData: Data) -> String? {
+        var combined = pendingData + newData
+        pendingData = Data()
+        
+        // 从末尾向前查找可能被截断的 UTF-8 多字节序列
+        // UTF-8 continuation bytes 以 10xxxxxx (0x80-0xBF) 开头
+        // 如果末尾有 continuation bytes 但缺少 leading byte 对应的后续字节，需要保留
+        var truncateAt = combined.count
+        if truncateAt > 0 {
+            // 最多回退 3 字节（UTF-8 最长 4 字节）
+            let searchStart = max(0, truncateAt - 3)
+            for i in stride(from: truncateAt - 1, through: searchStart, by: -1) {
+                let byte = combined[i]
+                if byte & 0x80 == 0 {
+                    // ASCII byte - 完整字符，无需截断
+                    break
+                } else if byte & 0xC0 == 0xC0 {
+                    // Leading byte - 检查后续 continuation bytes 是否完整
+                    let expectedLen: Int
+                    if byte & 0xE0 == 0xC0 { expectedLen = 2 }
+                    else if byte & 0xF0 == 0xE0 { expectedLen = 3 }
+                    else if byte & 0xF8 == 0xF0 { expectedLen = 4 }
+                    else { break } // 无效的 leading byte
+                    
+                    let available = truncateAt - i
+                    if available < expectedLen {
+                        // 不完整的多字节序列，截断到此处
+                        truncateAt = i
+                    }
+                    break
+                }
+                // else: continuation byte (10xxxxxx), 继续向前查找 leading byte
+            }
+        }
+        
+        if truncateAt < combined.count {
+            pendingData = combined[truncateAt...]
+            combined = combined[0..<truncateAt]
+        }
+        
+        guard !combined.isEmpty else { return nil }
+        return String(data: combined, encoding: .utf8)
     }
 }
 
@@ -698,7 +746,8 @@ extension CorsBypassPlugin: URLSessionDataDelegate {
             return
         }
         
-        guard let chunk = String(data: data, encoding: .utf8) else {
+        // 使用 decodeChunk 安全解码，处理跨 chunk 的 UTF-8 多字节字符
+        guard let chunk = context.decodeChunk(data) else {
             return
         }
         
